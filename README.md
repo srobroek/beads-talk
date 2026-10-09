@@ -341,6 +341,18 @@ bd mol show "$MOL" --parallel
 bd ready --mol "$MOL"
 ```
 
+These molecule views follow only the molecule's internal edges. They still list
+`verify` as ready even while the external `integration-artifact` blocker is
+open. Before dispatching any step, check the real state:
+
+```sh
+bd show "$VERIFY_STEP" --json
+bd dep list "$VERIFY_STEP" --json
+bd blocked --json
+```
+
+`VERIFY_STEP` is the `verify` ID from `id_mapping`.
+
 Steps: `verify` (researcher) → `approve` (operator, human gate) → `land`
 (operator) → `record` (operator). `land` stays blocked until a human accepts the
 current head and evidence and the gate is resolved with
