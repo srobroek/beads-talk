@@ -75,10 +75,13 @@ export ACTOR_LEAD_A="demo/$RUN/lead-a"
 export ACTOR_LEAD_B="demo/$RUN/lead-b"
 export BEADS_ACTOR="$ACTOR_PREPARE"
 export SESSIONS="$(mktemp -d)"
+export MG_BIN="$(command -v mg)"
 ```
 
 `BEADS_DIR` pins every `bd` call, from any worktree, to the canonical store.
-`SESSIONS` is a fresh directory outside the repository for agent sessions.
+`SESSIONS` is a fresh system-temporary directory for private agent sessions.
+`MG_BIN` must resolve to Mardi Gras. Some systems ship an unrelated `mg` editor,
+for example `/usr/bin/mg` on macOS; put Mardi Gras first on `PATH` before binding.
 
 Create the kit tree and the run base tree. Worktrunk prints JSON; the path is read
 from it, never constructed:
@@ -259,11 +262,11 @@ checkpoints and releases its epic claim.
 While work runs, watch the board:
 
 ```sh
-mg -no-animations
+"$MG_BIN" -no-animations
 ```
 
 Use only `j`/`k` or arrows, `Enter`, `Esc`, `?` and `q`. If the TUI is
-unavailable, `mg -status` prints the state once.
+unavailable, `"$MG_BIN" -status` prints the state once.
 
 ### Optional: ask the ledger (≤30 seconds)
 
@@ -340,6 +343,18 @@ bd mol current "$MOL"
 bd mol show "$MOL" --parallel
 bd ready --mol "$MOL"
 ```
+
+These molecule views follow only the molecule's internal edges. They still list
+`verify` as ready even while the external `integration-artifact` blocker is
+open. Before dispatching any step, check the real state:
+
+```sh
+bd show "$VERIFY_STEP" --json
+bd dep list "$VERIFY_STEP" --json
+bd blocked --json
+```
+
+`VERIFY_STEP` is the `verify` ID from `id_mapping`.
 
 Steps: `verify` (researcher) → `approve` (operator, human gate) → `land`
 (operator) → `record` (operator). `land` stays blocked until a human accepts the
@@ -436,6 +451,13 @@ SpecKit plugin 0.10.2 (`formulas/` directory), names unchanged:
 The demo only instantiates the template; no specification phase runs, and no
 `.specify/` scaffolding or `tasks.md` exists.
 
+Before the real pour, ask the presenter whether this sample keeps human
+approval gates, and bind their actual answer. `autonomous=no` keeps the gates:
+
+```sh
+export APPROVAL_ANSWER='REPLACE with the presenter'"'"'s exact answer'
+```
+
 ```sh
 cd "$DELIVERY_TREE"
 bd formula show speckit-basic
@@ -443,7 +465,7 @@ bd cook .beads/formulas/speckit-basic.formula.toml --var "feature=001-formula-on
 bd mol pour speckit-basic --var "feature=001-formula-only-$RUN" --var autonomous=no --dry-run
 BEADS_ACTOR="$ACTOR_LEAD_B" bd mol pour speckit-basic --var "feature=001-formula-only-$RUN" --var autonomous=no --json > "$SESSIONS/speckit.json"
 export SPEC_MOL="$(jq -r .new_epic_id "$SESSIONS/speckit.json")"
-BEADS_ACTOR="$ACTOR_LEAD_B" bd update "$SPEC_MOL" --set-metadata human_approvals=yes --set-metadata autonomous=no --set-metadata demo_kind=formula-only --set-metadata "spec_id=001-formula-only-$RUN" --set-metadata "approval_choice=presenter chose human approvals for this sample"
+BEADS_ACTOR="$ACTOR_LEAD_B" bd update "$SPEC_MOL" --spec-id "001-formula-only-$RUN" --set-metadata human_approvals=yes --set-metadata autonomous=no --set-metadata demo_kind=formula-only --set-metadata "approval_choice=$APPROVAL_ANSWER"
 bd mol current "$SPEC_MOL"
 bd ready --mol "$SPEC_MOL"
 ```

@@ -23,6 +23,7 @@ git anchors are.
 - `demo:milestone` carriers close only when the parent has inspected their named evidence.
 - `pr:merge` beads dispatch only with an exact-head approval, green CI for that head and a resolved human gate.
 - `metadata.execution_agent_type` names the agent to dispatch (`implementer`, `researcher`, `operator`). It is input to the orchestrator; nothing schedules automatically.
+- `bd mol current`, `bd mol show --parallel` and `bd ready --mol` only see edges inside the molecule; they ignore blockers from outside it. Before dispatching a molecule step, confirm it with `bd show STEP --json` and `bd blocked --json`.
 
 ## Claims
 
