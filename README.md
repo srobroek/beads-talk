@@ -497,19 +497,3 @@ not see the formulas that live in the linked worktrees.
 
 See [`AGENTS.md`](AGENTS.md): entry, readiness versus dispatch, claims and
 release, metadata conventions, findings, reporting line and landing policy.
-
-## CLI usage
-
-Requires Python 3.12 or newer; standard library only.
-
-```sh
-python3 -m logdemo dump fixtures/demo.jsonl
-python3 -m logdemo summary fixtures/demo.jsonl
-python3 -m logdemo summary fixtures/demo.jsonl --service api
-```
-
-`summary` prints a JSON object with keys `INFO`, `WARN`, `ERROR` in that order,
-zeros included, counted by each event's `level`. `--service NAME` keeps only
-events whose `service` equals `NAME` exactly (case-sensitive); no match, or an
-empty file, prints all zeros. Invalid input prints `logdemo: error: ...` to
-stderr and exits with status 2.
