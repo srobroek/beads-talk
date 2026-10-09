@@ -270,9 +270,14 @@ unavailable, `"$MG_BIN" -status` prints the state once.
 
 ### Optional: ask the ledger (≤30 seconds)
 
-Paste any line of [`prompts/discover.md`](prompts/discover.md) (bound with the
-same `sed` command) into a lead session. Each is read-only. The native
-equivalents:
+Print the prompts with the epic bound, then paste any line into a lead session.
+Each is read-only.
+
+```sh
+sed "s/EPIC_ID/$EPIC/g" "$KIT_TREE/prompts/discover.md"
+```
+
+The native equivalents:
 
 ```sh
 bd list --status open --type task --json
@@ -281,6 +286,7 @@ export EPIC_SCOPE="$EPIC $(bd list --parent "$EPIC" --all --json | jq -r '.[].id
 bd dep list $EPIC_SCOPE --direction down --type related --json
 bd dep list $EPIC_SCOPE --direction up --type related --json
 bd dep list $EPIC_SCOPE --direction up --type discovered-from --json
+bd dep list $EPIC_SCOPE --direction down --type discovered-from --json
 bd ready --parent "$EPIC" --json
 bd blocked --parent "$EPIC" --json
 ```
