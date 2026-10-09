@@ -5,8 +5,8 @@ the conversation, keep the project**.
 
 This README is a quick start for **your own repository**. You plan one feature as a
 Beads epic, let one or more coding agents work it, end the chat, and continue in a
-fresh session from the ledger. The stage app and the presenter's reproduction kit
-are separate; see [Try the stage app](#try-the-stage-app-optional).
+fresh session from the ledger. The stage app is separate; see
+[Try the stage app](#try-the-stage-app-optional).
 
 ## What Beads does, and what it does not
 
@@ -440,6 +440,3 @@ practise Beads: do not run `bd init`, `bd bootstrap` or `bd dolt push` in it.
 Its [`AGENTS.md`](AGENTS.md) is a stage-specific contract (seeded milestones,
 fixed actors, demo metadata); borrow ideas from it, but don't transplant it into
 your project unchanged.
-
-The presenter's full reproduction, pinned to tag `demo-kit-v1`, is in
-[docs/presenter-reproduction.md](docs/presenter-reproduction.md).
