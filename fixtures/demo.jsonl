@@ -1,0 +1,4 @@
+{"service": "api", "level": "INFO", "message": "started"}
+{"service": "api", "level": "ERROR", "message": "timeout"}
+{"service": "worker", "level": "WARN", "message": "retrying"}
+{"service": "worker", "level": "INFO", "message": "ERROR budget remains healthy"}
