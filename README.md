@@ -146,7 +146,7 @@ after you restart the harness:
 
 **OMP** has no `bd setup` recipe. Its optional Beads plugin adds actor
 attribution, serialized ledger writes and closure safeguards; it schedules
-nothing. Nothing in this guide requires it.
+nothing. The workflow works without it.
 
 **Finish setup.** Commit the setup branch and merge it the way you merge any
 change. For a new ledger, publish it once:
@@ -359,7 +359,7 @@ review, with the test command and commit as evidence.
 
 ## End-to-end orchestration prompt
 
-Paste this into a lead session once steps 1–3 are done. It stops before merging.
+Paste this into a lead session once steps 1 through 3 are done. It stops before merging.
 
 ```text
 You are the lead for Beads epic <epic-id> in this repository.
