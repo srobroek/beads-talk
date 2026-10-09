@@ -47,6 +47,10 @@ class ReadEventsTest(unittest.TestCase):
                 with self.assertRaisesRegex(InputError, expected):
                     self.read_text(text)
 
+    def test_rejects_deeply_nested_json(self):
+        with self.assertRaises(InputError):
+            self.read_text("[" * 100_000 + "]" * 100_000 + "\n")
+
     def test_rejects_unreadable_file(self):
         with self.assertRaisesRegex(InputError, "cannot read file"):
             read_events(os.path.join(FIXTURES, "missing.jsonl"))
