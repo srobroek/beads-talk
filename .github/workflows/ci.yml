@@ -19,3 +19,5 @@ jobs:
         run: python -m unittest discover -s tests -t . -v
       - name: Baseline acceptance
         run: python checks/acceptance.py baseline
+      - name: Summary acceptance
+        run: python checks/acceptance.py summary
