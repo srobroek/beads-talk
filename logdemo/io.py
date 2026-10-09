@@ -23,7 +23,7 @@ def read_events(path: str) -> list[dict[str, str]]:
             continue
         try:
             record = json.loads(line)
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, RecursionError) as exc:
             raise InputError(f"{path}:{number}: invalid JSON") from exc
         events.append(_validate(record, f"{path}:{number}"))
     return events
