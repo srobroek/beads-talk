@@ -59,15 +59,27 @@ fresh session is the point of the demo.
 
 ## 1. Bind the environment
 
-Run once per shell from the canonical checkout (a clone of this repository).
+This walkthrough has two entry points. Do not mix them:
+
+- **Initial provisioning (this section).** The presenter runs it once per shell,
+  from the canonical checkout: the clone of this repository whose `.beads/` is
+  the run's ledger store. It is the only place `BEADS_DIR` is ever set, and only
+  when the shell does not already supply it.
+- **Already-provisioned agent entry.** Lead sessions launched in sections 6 and 7
+  inherit `BEADS_DIR`, `BEADS_ACTOR` and the hardened variables from this shell.
+  They skip this section and never rederive `BEADS_DIR`;
+  [`AGENTS.md`](AGENTS.md) has them confirm the store with `bd where` and stop on
+  a mismatch.
+
 Choose a new `RUN` for every run; runs are never reset.
 
 ```sh
 export RUN=rehearsal-01
 export REPO=srobroek/beads-talk
-export CANONICAL="$(git rev-parse --show-toplevel)"
+export CANONICAL="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 export KIT_SHA="$(git rev-parse 'demo-kit-v1^{commit}')"
-export BEADS_DIR="$CANONICAL/.beads"
+export BEADS_DIR="${BEADS_DIR:-$CANONICAL/.beads}"
+[ "$(cd "$BEADS_DIR" && pwd -P)" = "$CANONICAL/.beads" ] || { echo "STOP: inherited BEADS_DIR=$BEADS_DIR is not $CANONICAL/.beads" >&2; exit 1; }
 export GIT_TERMINAL_PROMPT=0 SSH_ASKPASS=/usr/bin/false SSH_ASKPASS_REQUIRE=force PAGER=cat GIT_PAGER=cat
 unset BEADS_DOLT_SHARED_SERVER
 export ACTOR_PREPARE="demo/$RUN/prepare"
@@ -76,9 +88,25 @@ export ACTOR_LEAD_B="demo/$RUN/lead-b"
 export BEADS_ACTOR="$ACTOR_PREPARE"
 export SESSIONS="$(mktemp -d)"
 export MG_BIN="$(command -v mg)"
+beads_store() {
+  [ "$(cd "$BEADS_DIR" && pwd -P)" = "$CANONICAL/.beads" ] || { echo wrong-store; return 1; }
+  bd where --json | jq -r --arg want "$(cd "$BEADS_DIR" && pwd -P)" \
+    'if .path != $want then "wrong-store" elif has("database_path") then "ready" else "missing" end'
+}
 ```
 
-`BEADS_DIR` pins every `bd` call, from any worktree, to the canonical store.
+`BEADS_DIR` pins every `bd` call, from any worktree, to the canonical store. A
+value the shell already supplies is kept, never replaced; if it names another
+store, provisioning exits before any Beads command: fix the launching environment
+and open a new shell.
+
+`beads_store` asks `bd where` which store is active and prints one word: `ready`
+(the pinned canonical store holds a database), `missing` (it holds only the
+tracked setup files) or `wrong-store`. `bd where` exits 0 in all three cases
+and falls back to the current directory when `BEADS_DIR` names no directory,
+so its exit status alone proves nothing. Every ledger write below runs only
+after `test "$(beads_store)" = ready` succeeds in this shell.
+
 `SESSIONS` is a fresh system-temporary directory for private agent sessions.
 `MG_BIN` must resolve to Mardi Gras. Some systems ship an unrelated `mg` editor,
 for example `/usr/bin/mg` on macOS; put Mardi Gras first on `PATH` before binding.
@@ -93,6 +121,41 @@ export BASE_TREE="$(wt switch -y --create --no-cd --base "$KIT_SHA" --format jso
 
 Source pushes in this walkthrough use `git push`; on the presenter's macOS host
 the same commands run as `dgit push`.
+
+### Ledger store on a fresh clone
+
+A fresh clone of this repository carries only the tracked `.beads/` setup files
+(`config.yaml`, `metadata.json`, formulas). The ledger itself lives on GitHub
+under `refs/dolt/data`. Check the store from the kit tree, under the pinned
+environment:
+
+```sh
+cd "$KIT_TREE"
+beads_store
+```
+
+`ready`: continue with section 2. `wrong-store`: stop. `missing`: bootstrap the
+existing remote ledger, still from the kit tree:
+
+```sh
+cd "$KIT_TREE"
+git ls-remote origin refs/dolt/data
+bd bootstrap --dry-run
+test -n "$(git ls-remote origin refs/dolt/data)" && test "$(beads_store)" = missing && bd bootstrap --yes
+test "$(beads_store)" = ready
+bd dolt remote list
+```
+
+`git ls-remote` must print a ref; if it prints nothing, the remote holds no
+ledger and this walkthrough stops. Per `bd bootstrap --help` (bd 1.3.0), with
+`sync.remote` configured (the tracked `config.yaml` names this repository) it
+verifies `refs/dolt/data` and clones the ledger from the remote. It never deletes
+existing issues and exits non-zero when it cannot set up a database. If `bd` warns
+that `.beads` permissions are too open, run `chmod 700 "$BEADS_DIR"`.
+`bd dolt remote list` must show `origin` pointing at this repository.
+
+Never run `bd init` in a clone of this existing repository, never start a Dolt
+server, and never reset or re-create anything: the ledger already exists.
 
 ## 2. Check the baseline
 
@@ -117,6 +180,16 @@ git ls-remote origin "refs/heads/demo-base/$RUN"
 This branch is the run's PR destination, not the default branch.
 
 ## 4. Seed the epic
+
+Confirm the pinned store before the first ledger write; continue only when this
+exits 0:
+
+```sh
+cd "$KIT_TREE"
+test "$(beads_store)" = ready
+```
+
+Then seed:
 
 ```sh
 cd "$KIT_TREE"
@@ -268,16 +341,25 @@ While work runs, watch the board:
 Use only `j`/`k` or arrows, `Enter`, `Esc`, `?` and `q`. If the TUI is
 unavailable, `"$MG_BIN" -status` prints the state once.
 
-### Optional: ask the ledger (≤30 seconds)
+### Optional: ask the ledger (read-only)
 
-Print the prompts with the epic bound, then paste any line into a lead session.
-Each is read-only.
+These queries are optional and read-only; nothing in later sections depends on
+them. A live answer takes as long as the lead session and `bd` take. If that
+would overrun the stage budget, show answers recorded during a rehearsal or skip
+this part.
+
+Rebind the epic from the seed output immediately before rendering, then paste
+any printed line into a lead session:
 
 ```sh
-sed "s/EPIC_ID/$EPIC/g" "$KIT_TREE/prompts/discover.md"
+EPIC="$(jq -er .ids.epic "$SESSIONS/seed.json")" &&
+  sed "s/EPIC_ID/$EPIC/g" "$KIT_TREE/prompts/discover.md"
 ```
 
-The native equivalents:
+`jq -e` fails instead of printing `null` when the seed output lacks the epic, so
+no prompt renders with a wrong ID.
+
+The native equivalents, equally read-only:
 
 ```sh
 bd list --status open --type task --json
