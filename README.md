@@ -73,6 +73,7 @@ unset BEADS_DOLT_SHARED_SERVER
 export ACTOR_PREPARE="demo/$RUN/prepare"
 export ACTOR_LEAD_A="demo/$RUN/lead-a"
 export ACTOR_LEAD_B="demo/$RUN/lead-b"
+export BEADS_ACTOR="$ACTOR_PREPARE"
 export SESSIONS="$(mktemp -d)"
 ```
 
@@ -179,6 +180,7 @@ decomposes `filter-feature`.
 ## 5. Prepare the summary commit and delivery tree
 
 ```sh
+bd dolt pull
 BEADS_ACTOR="$ACTOR_PREPARE" bd update "$SUMMARY" --claim
 export SUMMARY_TREE="$(wt switch -y --create --no-cd --base "$KIT_SHA" --format json "demo-summary/$RUN" | jq -r .path)"
 cd "$SUMMARY_TREE"
@@ -201,9 +203,13 @@ The epic owns the delivery tree. Claim the epic, create the tree, merge the
 prepared summary into it, then release so the lead claims the epic itself:
 
 ```sh
+bd dolt pull
 BEADS_ACTOR="$ACTOR_LEAD_A" bd update "$EPIC" --claim
 export DELIVERY_TREE="$(wt switch -y --create --no-cd --base "$KIT_SHA" --format json "demo-delivery/$RUN" | jq -r .path)"
 git -C "$DELIVERY_TREE" merge --no-ff "demo-summary/$RUN" -m "merge prepared summary"
+relpath() { python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$1" "$CANONICAL"; }
+BEADS_ACTOR="$ACTOR_PREPARE" bd update "$SUMMARY" --set-metadata "base_sha=$KIT_SHA" --set-metadata "worktree=$(relpath "$SUMMARY_TREE")"
+BEADS_ACTOR="$ACTOR_LEAD_A" bd update "$EPIC" --set-metadata "demo_run=$RUN" --set-metadata "base_sha=$KIT_SHA" --set-metadata "branch=demo-delivery/$RUN" --set-metadata "worktree=$(relpath "$DELIVERY_TREE")" --set-metadata "head_sha=$(git -C "$DELIVERY_TREE" rev-parse HEAD)"
 BEADS_ACTOR="$ACTOR_LEAD_A" bd unclaim "$EPIC" --if-assignee="$ACTOR_LEAD_A"
 ```
 
@@ -268,10 +274,18 @@ equivalents:
 ```sh
 bd list --status open --type task --json
 bd list --parent "$EPIC" --all --json
-bd dep list "$EPIC"
+export EPIC_SCOPE="$EPIC $(bd list --parent "$EPIC" --all --json | jq -r '.[].id' | tr '\n' ' ')"
+bd dep list $EPIC_SCOPE --direction down --type related --json
+bd dep list $EPIC_SCOPE --direction up --type related --json
+bd dep list $EPIC_SCOPE --direction up --type discovered-from --json
 bd ready --parent "$EPIC" --json
 bd blocked --parent "$EPIC" --json
 ```
+
+"All tasks related to the epic" is wider than its descendants: the `dep list`
+calls add beads linked `related` or `discovered-from` to the epic or any
+descendant, in both directions. The JSON shapes differ: `down` returns edge rows
+(`issue_id`, `depends_on_id`), `up` returns issue rows (`id`, `dependency_type`).
 
 "What's next" distinguishes ready, blocked, claimed (`assignee`) and
 `metadata.state=reported` rows.
@@ -347,15 +361,34 @@ Wisps are local and ephemeral. Durable conclusions go on a regular bead.
 ```sh
 cd "$DELIVERY_TREE"
 git push -u origin "demo-delivery/$RUN"
-gh pr create --repo "$REPO" --draft --base "demo-base/$RUN" --head "demo-delivery/$RUN" --title "feat: add service-filtered log summaries" --body "Bead: $EPIC"
+cat > "$SESSIONS/pr-body.md" <<EOF
+Adds \`python3 -m logdemo summary FILE [--service NAME]\`: level counts for all
+events or one exact service.
+
+Why: demo epic $EPIC, delivered through a durable Beads ledger.
+
+Test plan:
+- python3 -m unittest discover -s tests
+- python3 checks/acceptance.py baseline
+- python3 checks/acceptance.py summary
+- python3 checks/acceptance.py filtered
+
+Bead: $EPIC
+EOF
+printf 'Closes-Bead: %s\n' $IMPLEMENTED_IDS >> "$SESSIONS/pr-body.md"
+gh pr create --repo "$REPO" --draft --base "demo-base/$RUN" --head "demo-delivery/$RUN" --title "feat: add service-filtered log summaries" --body-file "$SESSIONS/pr-body.md"
 export PR="$(gh pr view "demo-delivery/$RUN" --repo "$REPO" --json number -q .number)"
 export HEAD_SHA="$(gh pr view "$PR" --repo "$REPO" --json headRefOid -q .headRefOid)"
 sed -e "s/PR_NUMBER/$PR/g" -e "s/HEAD_SHA/$HEAD_SHA/g" "$KIT_TREE/prompts/review.md"
 ```
 
-The PR body also lists `Closes-Bead: <id>` lines for each landed implementation
-bead. A fresh independent reviewer gets the printed review prompt. The lead posts
-its result as a PR comment from the author's account:
+`IMPLEMENTED_IDS` holds the space-separated IDs of the implementation beads that
+land in this PR (summary, fix, filter implementation, integration), read from
+`bd list --parent "$EPIC" --all --json`. A fresh independent reviewer gets the
+printed review prompt. The lead writes the reviewer's actual result, never an
+invented one, to `$SESSIONS/review-comment.md` in this shape and posts it from
+the author's account with
+`gh pr comment "$PR" --repo "$REPO" --body-file "$SESSIONS/review-comment.md"`:
 
 ```
 VERDICT: APPROVE
@@ -371,9 +404,17 @@ gh pr checks "$PR" --repo "$REPO"
 
 Landing requires `Reviewed-Head` equal to the current `headRefOid`, green
 `verify` CI for that head and the resolved human gate. Any new commit needs a
-new review. Then `gh pr ready "$PR"`, and the lead calls the Delivery plugin's
-`delivery_land` tool with this repository, the PR number, `merge_method=squash`,
-`expectHeadSha` set to the reviewed SHA, the delivery worktree and the epic ID.
+new review. Then `gh pr ready "$PR" --repo "$REPO"`, and the lead calls the
+Delivery plugin's `delivery_land` tool (an OMP tool, not a shell command) with
+arguments of this shape:
+
+```json
+{"repo": "srobroek/beads-talk", "pr": 12, "merge_method": "squash",
+ "expectHeadSha": "<reviewed 40-hex SHA>", "worktree": "<delivery tree>", "beadId": "<epic id>"}
+```
+
+`pr` is the literal PR number. The tool does not check the review; the lead does.
+
 The receipt must show `MERGED`, the reviewed head, base `demo-base/$RUN` and the
 merge SHA. Then the merge bead closes first, children before parents, and the
 ledger syncs:
@@ -400,9 +441,16 @@ cd "$DELIVERY_TREE"
 bd formula show speckit-basic
 bd cook .beads/formulas/speckit-basic.formula.toml --var "feature=001-formula-only-$RUN" --var autonomous=no --dry-run
 bd mol pour speckit-basic --var "feature=001-formula-only-$RUN" --var autonomous=no --dry-run
+BEADS_ACTOR="$ACTOR_LEAD_B" bd mol pour speckit-basic --var "feature=001-formula-only-$RUN" --var autonomous=no --json > "$SESSIONS/speckit.json"
+export SPEC_MOL="$(jq -r .new_epic_id "$SESSIONS/speckit.json")"
+BEADS_ACTOR="$ACTOR_LEAD_B" bd update "$SPEC_MOL" --set-metadata human_approvals=yes --set-metadata autonomous=no --set-metadata demo_kind=formula-only --set-metadata "spec_id=001-formula-only-$RUN" --set-metadata "approval_choice=presenter chose human approvals for this sample"
+bd mol current "$SPEC_MOL"
+bd ready --mol "$SPEC_MOL"
 ```
 
-With `autonomous=no`, the human approval gates stay in the molecule. Unperformed
+With `autonomous=no`, the human approval gates stay in the molecule;
+`id_mapping` in `$SESSIONS/speckit.json` names each step, and the lead stamps
+the same `spec_id` on them. Unperformed
 phases stay open. Label any instance `formula instantiated; specification phases
 not executed`.
 
