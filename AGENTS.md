@@ -6,7 +6,7 @@ git anchors are.
 
 ## Entry
 
-1. Run `bd prime`, then `bd show EPIC --json` and `bd list --parent EPIC --all --json`.
+1. Run `bd prime` and `bd dolt pull`, then `bd show EPIC --json` and `bd list --parent EPIC --all --json`.
 2. Read each descendant's acceptance, dependencies, notes and metadata
    (`state`, `branch`, `worktree`, `artifact_sha`, `head_sha`, `verification_result`)
    before acting.
@@ -26,18 +26,19 @@ git anchors are.
 
 ## Claims
 
-- Inspect the bead, then claim its literal ID (`bd update ID --claim`) before creating a branch, worktree or edit.
+- Run `bd dolt pull`, inspect the bead, then claim its literal ID (`bd update ID --claim`) before assigning it, creating a branch or worktree, or editing.
 - The parent claims a writing worker's bead under that worker's actor; the worker uses the same `BEADS_ACTOR`.
 - Writing workers commit, record evidence, then release their own claim: `bd unclaim ID --if-assignee=ACTOR`.
-- Read-only review beads belong to the lead's actor; the reviewer never writes the ledger. The lead records, closes and releases them.
-- Before a manual exit the lead waits for workers to commit and exit, records remaining work on the epic, and releases its epic claim.
+- Read-only review beads belong to the lead's actor; the reviewer never writes the ledger. The lead records evidence, then closes the review bead. `bd unclaim` reopens a bead: NEVER unclaim a closed bead.
+- Before a manual exit the lead waits until no worker is editing and every worker has committed and released its claim, records remaining work on the epic, and releases its epic claim.
 - A replacement lead reuses recorded branches and worktrees. NEVER create a second competing tree for the same bead.
 
 ## Ownership and isolation
 
-- One owner per file region. Concurrent writers each get a separate linked worktree cut from one recorded base commit.
+- One owner per file region. Concurrent writers each get a separate linked worktree cut from one recorded base commit. Read-only reviewers read the existing tree of the artifact they review.
 - Workers report; the parent reviews and closes. A worker NEVER closes its own bead.
-- Stay inside the files and contracts in `demo/summary-acceptance.md` and `demo/filter-acceptance.md`. No servers, persistence, pagination, telemetry or unrelated refactors.
+- Stay inside the files and contracts in `demo/summary-acceptance.md` and `demo/filter-acceptance.md`. The integration bead alone owns `logdemo/__main__.py` CLI wiring and `.github/workflows/ci.yml`. No servers, persistence, pagination, telemetry or unrelated refactors.
+- Reuse the existing code, fixtures and `checks/acceptance.py`; run the checks the bead's acceptance names. NEVER remove or weaken a check.
 
 ## Durable state
 
