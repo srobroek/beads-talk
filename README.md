@@ -220,8 +220,8 @@ bd blocked --parent <epic-id>                   # and what blocks them
 bd dep list <epic-id> --direction up            # what points at the epic
 ```
 
-Beads in one graph layer have no dependency on each other. Run them in parallel
-only when they also own separate files. "Ready" means that nothing blocks a bead;
+One graph layer has no internal dependencies. Parallel work also requires
+separate file ownership. "Ready" means that nothing blocks a bead;
 it does not mean "needs coding". A finished but unreviewed bead is ready again
 once its worker releases it. Natural-language versions:
 
@@ -314,7 +314,7 @@ With several agents at once:
   succeeds, so two agents sharing one name can both "claim" the same bead.
 
 **When is a child done?** The worker reports; it never closes its own bead.
-The lead (you or your lead agent) then:
+The lead is you or your lead agent. Its responsibilities:
 
 1. has the commit reviewed against the acceptance;
 2. merges it into the feature branch;
@@ -349,7 +349,11 @@ Prompts:
 > 5. Run `bd` writes one at a time.
 > 6. If you can run subagents, dispatch independent children in one parallel batch. Otherwise, do them one at a time.
 > 7. Each worker runs the tests its acceptance names. Then it commits.
-> 8. The worker records `state=reported` on the bead, with its branch, commit and test result. Then it reports.
+> 8. The worker records `state=reported` on the bead. Include:
+>    - its branch;
+>    - the commit;
+>    - the test result.
+>    The worker reports after recording this evidence.
 > 9. Workers never close beads.
 
 > Review bead `<child-id>` at commit `<commit-sha>` against its acceptance criteria. Read-only: run the named checks and report PASS or FAIL with the commands and output. For a defect, state expected versus observed behavior. Do not fix it.
@@ -361,8 +365,8 @@ session:
 
 1. Commit your work.
 2. Write what matters onto the beads.
-3. Release the claims you still hold on open beads: a child you are working on,
-   or the epic if you claimed it.
+3. Release your claims on open beads.
+   This includes the child you are working on and the epic, if you claimed it.
 4. Sync.
 
 Never unclaim a closed bead: `bd unclaim` reopens it.
