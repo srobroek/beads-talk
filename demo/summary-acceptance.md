@@ -1,8 +1,8 @@
 # Summary acceptance
 
-Contract for `python3 -m logdemo summary FILE`. `checks/acceptance.py summary`
-runs the real CLI and is the executable form of this table; its exact output
-format is authoritative.
+Contract for `python3 -m logdemo summary FILE`. The CLI JSON values and key order
+below are the contract; `checks/acceptance.py summary` exercises it through a
+real subprocess. JSON whitespace is not part of the contract.
 
 Each event is counted by its `level` field only. Output always contains the keys
 `INFO`, `WARN`, `ERROR`, in that order, zeros included. Exit status 0.

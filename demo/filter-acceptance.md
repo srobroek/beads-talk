@@ -1,8 +1,8 @@
 # Filter acceptance
 
-Contract for service filtering. `checks/acceptance.py filtered` runs the real
-CLI and is the executable form of this table; its exact output format is
-authoritative.
+Contract for service filtering. The CLI JSON values and key order below are the
+contract; `checks/acceptance.py filtered` exercises it through a real subprocess.
+JSON whitespace is not part of the contract.
 
 ## Function
 

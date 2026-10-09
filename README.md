@@ -13,22 +13,26 @@ carries the work across sessions.
 |---|---|---|
 | [Beads](https://github.com/gastownhall/beads/tree/v1.3.0) (`bd`) | 1.3.0 | Durable graph, claims, readiness, history, formulas, molecules, gates, wisps |
 | [Mardi Gras](https://github.com/quietpublish/mardi-gras/tree/v0.33.0) (`mg`) | 0.33.0 | Terminal board that reads through `bd` |
-| OMP coding agent | 18.8.0 | Lead and subagents |
-| OMP Beads plugin | 4.1.3 | Guardrails on top of native Beads (below) |
+| [Worktrunk](https://worktrunk.dev) (`wt`) | 0.80.0 | Linked git worktrees |
+| OMP coding agent (`omp`) | 18.8.0 | Lead and subagents (`task` tool) |
+| OMP Beads plugin | 4.1.3 | Guardrails on top of native Beads |
 | OMP SpecKit plugin | 0.10.2 | Source of the bundled SpecKit formulas |
-| OMP Delivery plugin | 1.4.0 | PR landing receipt |
-| Python | 3.12+ | Application and checks; standard library only |
+| OMP Delivery plugin | 1.4.0 | `delivery_land` PR landing receipt |
+| GitHub CLI (`gh`), `jq`, Python | 3.12+ for Python | PRs, JSON capture, application and checks (standard library only) |
 
-### Native Beads versus OMP
+### What runs where
 
-- **Native Beads** owns the graph, atomic claims (`bd update ID --claim`), readiness
-  (`bd ready`), history (`bd history`), formulas, molecules, human gates and wisps.
-  Everything in this walkthrough runs with plain `bd`.
-- **OMP Beads** adds actor attribution, serialization of writes to the embedded
-  store, closure safeguards and pinning to the canonical store. It does not
-  schedule work: `metadata.execution_agent_type` is input the lead reads when it
-  dispatches.
-- The workflow contract itself is [`AGENTS.md`](AGENTS.md) and is tool-portable.
+- **Native Beads (`bd`)** owns the graph, atomic claims (`bd update ID --claim`),
+  readiness (`bd ready`), history (`bd history`), formulas, molecules, human
+  gates and wisps. Every `bd` command below is plain Beads.
+- **OMP** runs the agents. The lead dispatches subagents with its `task` tool and
+  lands with the Delivery plugin's `delivery_land` tool. The OMP Beads plugin
+  adds actor attribution, serialized writes to the embedded store, closure
+  safeguards and pinning to the canonical store. Nothing schedules work:
+  `metadata.execution_agent_type` is input the lead reads when it dispatches.
+- **Git and GitHub** (`git`, `gh`) carry code; `bd dolt push` carries the ledger.
+  Code and ledger sync are separate operations.
+- The workflow contract is [`AGENTS.md`](AGENTS.md) and is tool-portable.
 
 ## Repository layout
 
@@ -39,7 +43,7 @@ carries the work across sessions.
 | `tests/`, `checks/acceptance.py` | Unit tests and CLI acceptance (`baseline`, `summary`, `filtered`) |
 | `demo/epic.json` | Seed graph: nine nodes, eight parent-child links, two blockers |
 | `demo/prepared-summary.patch` | Prepared summary commit with a disclosed defect |
-| `demo/summary-acceptance.md`, `demo/filter-acceptance.md` | Written acceptance |
+| `demo/summary-acceptance.md`, `demo/filter-acceptance.md` | Written acceptance contracts |
 | `prompts/` | Ready-to-paste prompts |
 | `.beads/formulas/` | `talk-delivery`, `demo-smoke` and seven bundled SpecKit formulas |
 | `AGENTS.md` | Durable agent workflow contract |
@@ -53,37 +57,43 @@ summary checks pass with the patch; `python3 checks/acceptance.py summary` fails
 on `fixtures/message-error.jsonl` (expected `1/0/0`). Finding and fixing this in a
 fresh session is the point of the demo.
 
-## 1. Bind variables
+## 1. Bind the environment
 
-Every later block uses these variables. Set them once per shell, in the
-repository's canonical checkout. Choose a new run name for every run; runs are
-never reset.
+Run once per shell from the canonical checkout (a clone of this repository).
+Choose a new `RUN` for every run; runs are never reset.
 
 ```sh
 export RUN=rehearsal-01
 export REPO=srobroek/beads-talk
 export CANONICAL="$(git rev-parse --show-toplevel)"
-export KIT_SHA="$(git rev-parse demo-kit-v1^{commit})"
+export KIT_SHA="$(git rev-parse 'demo-kit-v1^{commit}')"
 export BEADS_DIR="$CANONICAL/.beads"
-export GIT_TERMINAL_PROMPT=0 PAGER=cat GIT_PAGER=cat
+export GIT_TERMINAL_PROMPT=0 SSH_ASKPASS=/usr/bin/false SSH_ASKPASS_REQUIRE=force PAGER=cat GIT_PAGER=cat
 unset BEADS_DOLT_SHARED_SERVER
-```
-
-Actors are fixed per run:
-
-```sh
 export ACTOR_PREPARE="demo/$RUN/prepare"
 export ACTOR_LEAD_A="demo/$RUN/lead-a"
 export ACTOR_LEAD_B="demo/$RUN/lead-b"
-export SESSIONS='REPLACE: empty private directory for agent sessions, outside the repository'
+export SESSIONS="$(mktemp -d)"
 ```
 
-Linked worktrees are created with [Worktrunk](https://worktrunk.dev) (`wt`). Its
-JSON output names the created path; read it, do not construct it.
+`BEADS_DIR` pins every `bd` call, from any worktree, to the canonical store.
+`SESSIONS` is a fresh directory outside the repository for agent sessions.
+
+Create the kit tree and the run base tree. Worktrunk prints JSON; the path is read
+from it, never constructed:
+
+```sh
+export KIT_TREE="$(wt switch -y --create --no-cd --base "$KIT_SHA" --format json "demo-kit/$RUN" | jq -r .path)"
+export BASE_TREE="$(wt switch -y --create --no-cd --base "$KIT_SHA" --format json "demo-base/$RUN" | jq -r .path)"
+```
+
+Source pushes in this walkthrough use `git push`; on the presenter's macOS host
+the same commands run as `dgit push`.
 
 ## 2. Check the baseline
 
 ```sh
+cd "$KIT_TREE"
 python3 -m unittest discover -s tests
 python3 checks/acceptance.py baseline
 python3 -m logdemo dump fixtures/demo.jsonl
@@ -93,16 +103,10 @@ Expected: tests and baseline acceptance pass; `dump` prints the four records of
 `fixtures/demo.jsonl` as a JSON array in input order. `summary` and `filtered`
 acceptance fail because those features do not exist yet.
 
-## 3. Create the run base branch
+## 3. Publish the run base branch
 
 ```sh
-wt switch -y --create --no-cd --base "$KIT_SHA" --format json "demo-base/$RUN"
-```
-
-In the returned path:
-
-```sh
-git push -u origin "demo-base/$RUN"
+git -C "$BASE_TREE" push -u origin "demo-base/$RUN"
 git ls-remote origin "refs/heads/demo-base/$RUN"
 ```
 
@@ -111,24 +115,24 @@ This branch is the run's PR destination, not the default branch.
 ## 4. Seed the epic
 
 ```sh
+cd "$KIT_TREE"
 bd dolt pull
 BEADS_ACTOR="$ACTOR_PREPARE" bd create --graph demo/epic.json --dry-run --json
-BEADS_ACTOR="$ACTOR_PREPARE" bd create --graph demo/epic.json --json
+BEADS_ACTOR="$ACTOR_PREPARE" bd create --graph demo/epic.json --json > "$SESSIONS/seed.json"
+jq . "$SESSIONS/seed.json"
 ```
 
 The dry run reports `node_count: 9`, `parent_deps: 8` and `edge_count: 5`
-(two `blocks`, three `related`). Read the created IDs from the live JSON output
-and bind them; IDs are assigned at runtime:
+(two `blocks`, three `related`). IDs are assigned at runtime; read them from the
+live output's key-to-ID map:
 
 ```sh
-export EPIC='REPLACE: epic id from the output'
-export SUMMARY='REPLACE: summary id from the output'
-export MERGE='REPLACE: merge id from the output'
-```
-
-Stamp the per-run merge anchors:
-
-```sh
+export EPIC="$(jq -r .ids.epic "$SESSIONS/seed.json")"
+export SUMMARY="$(jq -r .ids.summary "$SESSIONS/seed.json")"
+export FILTER_FEATURE="$(jq -r '.ids["filter-feature"]' "$SESSIONS/seed.json")"
+export FILTER_ARTIFACT="$(jq -r '.ids["filter-artifact"]' "$SESSIONS/seed.json")"
+export INTEGRATION_ARTIFACT="$(jq -r '.ids["integration-artifact"]' "$SESSIONS/seed.json")"
+export MERGE="$(jq -r .ids.merge "$SESSIONS/seed.json")"
 BEADS_ACTOR="$ACTOR_PREPARE" bd update "$MERGE" --set-metadata "branch=demo-delivery/$RUN" --set-metadata "origin_actor=$ACTOR_LEAD_A" --set-metadata "demo_run=$RUN"
 ```
 
@@ -168,71 +172,83 @@ bd ready --parent "$EPIC" --exclude-label demo:milestone,pr:merge --exclude-type
 ```
 
 That leaves `summary` and `review-summary`. Once preparation marks `summary`
-`state=reported`, the lead discards it: reported code needs review, not more
-coding. Dispatch therefore starts with `review-summary` alone, until the lead
+`state=reported` (section 5), the lead discards it: reported code needs review,
+not more coding. Dispatch starts with `review-summary` alone, until the lead
 decomposes `filter-feature`.
 
-## 5. Prepare the summary commit
+## 5. Prepare the summary commit and delivery tree
 
 ```sh
 BEADS_ACTOR="$ACTOR_PREPARE" bd update "$SUMMARY" --claim
-wt switch -y --create --no-cd --base "$KIT_SHA" --format json "demo-summary/$RUN"
-```
-
-In the returned summary tree:
-
-```sh
+export SUMMARY_TREE="$(wt switch -y --create --no-cd --base "$KIT_SHA" --format json "demo-summary/$RUN" | jq -r .path)"
+cd "$SUMMARY_TREE"
 git apply demo/prepared-summary.patch
 git add -A
 git commit -m "feat: add level summary"
+export SUMMARY_SHA="$(git rev-parse HEAD)"
 python3 checks/acceptance.py summary
 ```
 
-The last command fails on the message boundary, as disclosed. Record the anchors
-and release the claim (the bead stays open):
+The last command fails on the message boundary, as disclosed. Only now, after the
+real commit, mark the bead reported and release the claim; it stays open:
 
 ```sh
-export SUMMARY_SHA="$(git rev-parse HEAD)"
 BEADS_ACTOR="$ACTOR_PREPARE" bd update "$SUMMARY" --set-metadata state=reported --set-metadata "branch=demo-summary/$RUN" --set-metadata "artifact_sha=$SUMMARY_SHA" --set-metadata "demo_run=$RUN"
 BEADS_ACTOR="$ACTOR_PREPARE" bd unclaim "$SUMMARY" --if-assignee="$ACTOR_PREPARE"
 ```
 
-Create the epic-owned delivery tree after the lead claims the epic:
+The epic owns the delivery tree. Claim the epic, create the tree, merge the
+prepared summary into it, then release so the lead claims the epic itself:
 
 ```sh
 BEADS_ACTOR="$ACTOR_LEAD_A" bd update "$EPIC" --claim
-wt switch -y --create --no-cd --base "$KIT_SHA" --format json "demo-delivery/$RUN"
-```
-
-```sh
-export DELIVERY_TREE='REPLACE: path field from the wt JSON output'
-```
-
-In the delivery tree, merge the prepared summary branch:
-
-```sh
-git merge --no-ff "demo-summary/$RUN" -m "merge prepared summary"
-```
-
-Release the epic claim before launching the lead so it claims it itself:
-
-```sh
+export DELIVERY_TREE="$(wt switch -y --create --no-cd --base "$KIT_SHA" --format json "demo-delivery/$RUN" | jq -r .path)"
+git -C "$DELIVERY_TREE" merge --no-ff "demo-summary/$RUN" -m "merge prepared summary"
 BEADS_ACTOR="$ACTOR_LEAD_A" bd unclaim "$EPIC" --if-assignee="$ACTOR_LEAD_A"
 ```
 
 ## 6. Lead A: decompose, dispatch, find the defect
 
-Launch from the delivery tree with an empty session directory of your choice:
+Print the start prompt with the epic bound:
 
 ```sh
+sed "s/EPIC_ID/$EPIC/g" "$KIT_TREE/prompts/start.md"
+```
+
+Launch the lead with an empty session directory and paste that output:
+
+```sh
+mkdir -p "$SESSIONS/lead-a"
 BEADS_ACTOR="$ACTOR_LEAD_A" omp --cwd "$DELIVERY_TREE" --session-dir "$SESSIONS/lead-a"
 ```
 
-Paste [`prompts/start.md`](prompts/start.md) with `EPIC_ID` replaced by `$EPIC`.
+The lead creates the two `filter-feature` children in one native graph
+transaction, of this shape (`parent_id` and the carrier ID are the runtime IDs):
 
-Expected: the lead creates two children under `filter-feature`, dispatches the
-filter implementer and the summary reviewer together, records the failed
-boundary acceptance as a bug parented to the epic, and stops without fixing it.
+```json
+{
+  "nodes": [
+    {"key": "filter-impl", "parent_id": "<FILTER_FEATURE>", "type": "task",
+     "title": "Implement filter_service with tests",
+     "acceptance_criteria": "logdemo/filtering.py and tests/test_filtering.py meet demo/filter-acceptance.md; python3 -m unittest tests.test_filtering passes",
+     "metadata": {"execution_agent_type": "implementer"}},
+    {"key": "filter-verify", "parent_id": "<FILTER_FEATURE>", "type": "task",
+     "title": "Verify filter contract on the inspected artifact",
+     "acceptance_criteria": "Read-only: records the artifact SHA and expected versus observed results for every case in demo/filter-acceptance.md",
+     "metadata": {"execution_agent_type": "researcher"}}
+  ],
+  "edges": [
+    {"from_key": "filter-verify", "to_id": "<FILTER_ARTIFACT>", "type": "blocks"}
+  ]
+}
+```
+
+Expected: the filter implementer works in its own worktree cut from `KIT_SHA`;
+the summary reviewer reads the existing summary tree read-only and gets only the
+acceptance and the artifact SHA. After the filter commit is inspected, the lead
+closes `filter-artifact` and dispatches the verifier. The failed boundary
+acceptance becomes a bug parented to the epic; the lead does not fix it,
+checkpoints and releases its epic claim.
 
 While work runs, watch the board:
 
@@ -241,7 +257,24 @@ mg -no-animations
 ```
 
 Use only `j`/`k` or arrows, `Enter`, `Esc`, `?` and `q`. If the TUI is
-unavailable, `mg -status` prints the same state once.
+unavailable, `mg -status` prints the state once.
+
+### Optional: ask the ledger (≤30 seconds)
+
+Paste any line of [`prompts/discover.md`](prompts/discover.md) (bound with the
+same `sed` command) into a lead session. Each is read-only. The native
+equivalents:
+
+```sh
+bd list --status open --type task --json
+bd list --parent "$EPIC" --all --json
+bd dep list "$EPIC"
+bd ready --parent "$EPIC" --json
+bd blocked --parent "$EPIC" --json
+```
+
+"What's next" distinguishes ready, blocked, claimed (`assignee`) and
+`metadata.state=reported` rows.
 
 ## 7. Lead B: a fresh session
 
@@ -249,20 +282,18 @@ Exit lead A. Launch a new lead with a **different, empty** session directory and
 no resume, continue, fork or import:
 
 ```sh
+sed "s/EPIC_ID/$EPIC/g" "$KIT_TREE/prompts/resume.md"
+mkdir -p "$SESSIONS/lead-b"
 BEADS_ACTOR="$ACTOR_LEAD_B" omp --cwd "$DELIVERY_TREE" --session-dir "$SESSIONS/lead-b"
 ```
 
-Paste exactly [`prompts/resume.md`](prompts/resume.md) with `EPIC_ID` replaced:
-
-```
-Continue epic EPIC_ID in this repository.
-```
-
-Everything else comes from the ledger and `AGENTS.md`. Expected: the new lead
-finds the fix bug, the filter progress and the recorded worktrees, fixes the
-defect, integrates and passes:
+Paste the single printed line, `Continue epic <id> in this repository.`, and
+nothing else. Everything else comes from the ledger and `AGENTS.md`. Expected:
+the new lead finds the fix bug, the filter progress and the recorded worktrees,
+fixes the defect, integrates and passes:
 
 ```sh
+cd "$DELIVERY_TREE"
 python3 -m logdemo summary fixtures/demo.jsonl --service api
 python3 checks/acceptance.py filtered
 ```
@@ -271,23 +302,24 @@ This demonstrates lost conversational context, not crash recovery.
 
 ## 8. Delivery molecule
 
-`bd mol pour` finds formulas in the resolved store's `formulas/` directory, so
-run these from the canonical checkout once it contains `.beads/formulas/` at
-`demo-kit-v1`.
+`bd` finds formulas by name in the active store's `formulas/` and in the current
+checkout's `.beads/formulas/`. Run these from the delivery tree, which carries
+the kit formulas; nothing is copied into the canonical checkout.
 
 ```sh
+cd "$DELIVERY_TREE"
+bd formula show talk-delivery
 bd mol pour talk-delivery --var "feature=log-summary-$RUN" --dry-run
-BEADS_ACTOR="$ACTOR_LEAD_B" bd mol pour talk-delivery --var "feature=log-summary-$RUN" --json
+BEADS_ACTOR="$ACTOR_LEAD_B" bd mol pour talk-delivery --var "feature=log-summary-$RUN" --json > "$SESSIONS/mol.json"
+jq . "$SESSIONS/mol.json"
+export MOL="$(jq -r .new_epic_id "$SESSIONS/mol.json")"
 ```
 
-Read `new_epic_id` and `id_mapping` from the JSON; never construct step IDs.
-Formula steps carry no acceptance field in bd 1.3.0, so set each step's
-acceptance with `bd update STEP --acceptance "..."` after pouring.
-
-```sh
-export MOL='REPLACE: new_epic_id from the pour output'
-export GATE='REPLACE: gate issue id for the approve step, from bd mol show'
-```
+Read step IDs from `id_mapping` in that JSON; never construct them. Formula steps
+carry no acceptance field in bd 1.3.0, so the lead sets each step's acceptance
+with `bd update STEP --acceptance "..."` after pouring, then links the molecule:
+`verify` blocked by `integration-artifact`, the root `related` to the epic, and
+`land` `related` to the merge bead.
 
 ```sh
 bd mol current "$MOL"
@@ -296,16 +328,14 @@ bd ready --mol "$MOL"
 ```
 
 Steps: `verify` (researcher) → `approve` (operator, human gate) → `land`
-(operator) → `record` (operator). `land` stays blocked until a human accepts
-the current head and evidence and resolves the gate:
-
-```sh
-bd gate resolve "$GATE" --reason "<what was accepted, at which head SHA>"
-```
+(operator) → `record` (operator). `land` stays blocked until a human accepts the
+current head and evidence and the gate is resolved with
+`bd gate resolve <gate-id> --reason "<what was accepted, at which head SHA>"`.
 
 ### Transient wisp
 
 ```sh
+cd "$DELIVERY_TREE"
 bd mol wisp demo-smoke --var "run=$RUN" --json
 bd mol wisp list
 ```
@@ -314,21 +344,43 @@ Wisps are local and ephemeral. Durable conclusions go on a regular bead.
 
 ## 9. Review and landing
 
-Review uses [`prompts/review.md`](prompts/review.md) with `PR_NUMBER` and
-`HEAD_SHA` replaced. The approval names one full 40-hex head SHA; any new commit
-needs a new review. The agent review is posted as a PR comment from the author's
-account and is disclosed as such; it is not a separate GitHub-user approval.
-Landing is a squash merge into `demo-base/$RUN` and requires green `verify` CI
-for that head and the resolved human gate. Code beads stay open until the
-landing receipt; then the merge bead closes first, children before parents.
-
 ```sh
-export PR='REPLACE: pull request number'
+cd "$DELIVERY_TREE"
+git push -u origin "demo-delivery/$RUN"
+gh pr create --repo "$REPO" --draft --base "demo-base/$RUN" --head "demo-delivery/$RUN" --title "feat: add service-filtered log summaries" --body "Bead: $EPIC"
+export PR="$(gh pr view "demo-delivery/$RUN" --repo "$REPO" --json number -q .number)"
+export HEAD_SHA="$(gh pr view "$PR" --repo "$REPO" --json headRefOid -q .headRefOid)"
+sed -e "s/PR_NUMBER/$PR/g" -e "s/HEAD_SHA/$HEAD_SHA/g" "$KIT_TREE/prompts/review.md"
+```
+
+The PR body also lists `Closes-Bead: <id>` lines for each landed implementation
+bead. A fresh independent reviewer gets the printed review prompt. The lead posts
+its result as a PR comment from the author's account:
+
+```
+VERDICT: APPROVE
+Reviewed-Head: <full 40-hex headRefOid>
+Checks: <commands and exit statuses>
+Independent agent review posted by the PR author's account; not a separate GitHub-user approval.
 ```
 
 ```sh
-gh pr view "$PR" --json state,baseRefName,headRefOid,mergeCommit
-bd history "$EPIC"
+gh pr view "$PR" --repo "$REPO" --json headRefOid,comments
+gh pr checks "$PR" --repo "$REPO"
+```
+
+Landing requires `Reviewed-Head` equal to the current `headRefOid`, green
+`verify` CI for that head and the resolved human gate. Any new commit needs a
+new review. Then `gh pr ready "$PR"`, and the lead calls the Delivery plugin's
+`delivery_land` tool with this repository, the PR number, `merge_method=squash`,
+`expectHeadSha` set to the reviewed SHA, the delivery worktree and the epic ID.
+The receipt must show `MERGED`, the reviewed head, base `demo-base/$RUN` and the
+merge SHA. Then the merge bead closes first, children before parents, and the
+ledger syncs:
+
+```sh
+gh pr view "$PR" --repo "$REPO" --json state,baseRefName,headRefOid,mergeCommit
+bd history "$EPIC" --events
 bd dolt push
 git ls-remote origin refs/dolt/data
 ```
@@ -344,8 +396,9 @@ The demo only instantiates the template; no specification phase runs, and no
 `.specify/` scaffolding or `tasks.md` exists.
 
 ```sh
+cd "$DELIVERY_TREE"
 bd formula show speckit-basic
-bd cook speckit-basic --var "feature=001-formula-only-$RUN" --var autonomous=no --dry-run
+bd cook .beads/formulas/speckit-basic.formula.toml --var "feature=001-formula-only-$RUN" --var autonomous=no --dry-run
 bd mol pour speckit-basic --var "feature=001-formula-only-$RUN" --var autonomous=no --dry-run
 ```
 
@@ -361,8 +414,8 @@ directory and `BEADS_DIR` to `<workspace>/.beads`:
 bun <speckit-plugin>/tools/spec-start.ts --spec NNN-slug --workspace <canonical-project> --profile speckit-basic --approvals yes --decision '<explicit answer>' --beads-plugin <beads-plugin>
 ```
 
-This demo does not run the starter: it would read formulas from the canonical
-store, while this kit's formulas live in a linked worktree.
+This demo does not run the starter: forced to the canonical checkout, it would
+not see the formulas that live in the linked worktrees.
 
 ## Workflow contract
 
