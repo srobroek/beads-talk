@@ -1,0 +1,96 @@
+{
+  "nodes": [
+    {
+      "key": "epic",
+      "title": "Deliver service-filtered log summaries",
+      "type": "epic",
+      "priority": 1,
+      "description": "Add `summary FILE [--service NAME]` to logdemo: level counts for all events or one exact service. Contracts: demo/summary-acceptance.md and demo/filter-acceptance.md. One PR per epic, squash landing.",
+      "acceptance_criteria": "Full and service-filtered summary output match demo/summary-acceptance.md and demo/filter-acceptance.md; an independent review approves the exact PR head SHA; verify CI is green for that head; the PR actually lands (merge receipt with merge SHA).",
+      "metadata": {"repo": "srobroek/beads-talk", "execution_agent_type": "implementer"}
+    },
+    {
+      "key": "summary",
+      "parent_key": "epic",
+      "title": "Summarize events by level",
+      "type": "task",
+      "description": "Prepared code: demo/prepared-summary.patch adds logdemo/summary.py, the summary CLI command, ordinary tests and summary acceptance in CI. Preparation sets metadata.state=reported only after a real commit; the bead stays open until landing.",
+      "acceptance_criteria": "summarize(events) returns INFO/WARN/ERROR counts by level only, zeros included; `python3 -m logdemo summary fixtures/demo.jsonl` prints 2/1/1; message boundary fixtures/message-error.jsonl prints 1/0/0; `python3 checks/acceptance.py summary` exits 0.",
+      "metadata": {"execution_agent_type": "implementer"}
+    },
+    {
+      "key": "review-summary",
+      "parent_key": "epic",
+      "title": "Review prepared summary against acceptance",
+      "type": "task",
+      "description": "Read-only review of the prepared summary commit (metadata.artifact_sha on the summary bead). Run the written acceptance; report exact command, expected and observed output. Do not diagnose or fix.",
+      "acceptance_criteria": "Records `python3 checks/acceptance.py summary` exit status plus expected versus observed output for every case, against the named artifact SHA.",
+      "metadata": {"execution_agent_type": "researcher"}
+    },
+    {
+      "key": "filter-feature",
+      "parent_key": "epic",
+      "title": "Filter events by service",
+      "type": "feature",
+      "description": "Outcome container. The lead decomposes it live into an implementation child (logdemo/filtering.py, tests/test_filtering.py) and a read-only contract-verification child. No CLI wiring here; integration owns logdemo/__main__.py.",
+      "acceptance_criteria": "filter_service(events, service) keeps exact case-sensitive service matches in input order and returns [] for no match, per demo/filter-acceptance.md; tests/test_filtering.py covers equality, order and no match.",
+      "metadata": {"execution_agent_type": "implementer"}
+    },
+    {
+      "key": "integration",
+      "parent_key": "epic",
+      "title": "Wire service-filtered summary into the CLI and CI",
+      "type": "task",
+      "description": "Owns logdemo/__main__.py and .github/workflows/ci.yml: add `summary FILE --service NAME` and filtered acceptance to CI. Starts only after the corrected summary is accepted and the filter artifact is inspected.",
+      "acceptance_criteria": "`python3 -m logdemo summary fixtures/demo.jsonl --service api` prints 1/0/1, worker 1/1/0, missing service and empty input 0/0/0; `python3 checks/acceptance.py filtered` exits 0; CI runs unittest discovery plus baseline, summary and filtered acceptance.",
+      "metadata": {"execution_agent_type": "implementer"}
+    },
+    {
+      "key": "merge",
+      "parent_key": "epic",
+      "title": "Land the delivery PR",
+      "type": "task",
+      "labels": ["pr:merge", "agent:shepherd"],
+      "description": "Merge carrier, left open and unassigned. At run start the lead stamps branch=demo-delivery/<run> and origin_actor=<lead actor>; at PR time pr, base and head anchors.",
+      "acceptance_criteria": "Dispatch only with exact-head approval comment, green verify CI for that head and a resolved human gate; close only on a landing receipt proving MERGED, the reviewed head SHA, the run base branch and the merge SHA.",
+      "metadata": {"repo": "srobroek/beads-talk", "execution_agent_type": "operator"}
+    },
+    {
+      "key": "summary-accepted",
+      "parent_key": "epic",
+      "title": "Milestone: corrected summary accepted",
+      "type": "task",
+      "labels": ["demo:milestone"],
+      "description": "Carrier. The parent closes it only after corrected summary acceptance passes; the summary code bead stays open until landing.",
+      "acceptance_criteria": "Closed with evidence that `python3 checks/acceptance.py summary` exits 0 on a named commit SHA.",
+      "metadata": {"execution_agent_type": "operator"}
+    },
+    {
+      "key": "filter-artifact",
+      "parent_key": "epic",
+      "title": "Milestone: filter artifact inspected",
+      "type": "task",
+      "labels": ["demo:milestone"],
+      "description": "Carrier. The parent closes it only after inspecting the reported filter commit and its test cases.",
+      "acceptance_criteria": "Closed with the inspected filter commit SHA and the passing `python3 -m unittest tests.test_filtering` result.",
+      "metadata": {"execution_agent_type": "operator"}
+    },
+    {
+      "key": "integration-artifact",
+      "parent_key": "epic",
+      "title": "Milestone: integrated head ready",
+      "type": "task",
+      "labels": ["demo:milestone"],
+      "description": "Carrier. The parent closes it only after the integrated CLI passes on the delivery head.",
+      "acceptance_criteria": "Closed with the delivery head SHA and passing unittest discovery plus baseline, summary and filtered acceptance.",
+      "metadata": {"execution_agent_type": "operator"}
+    }
+  ],
+  "edges": [
+    {"from_key": "integration", "to_key": "summary-accepted", "type": "blocks"},
+    {"from_key": "integration", "to_key": "filter-artifact", "type": "blocks"},
+    {"from_key": "summary-accepted", "to_key": "summary", "type": "related"},
+    {"from_key": "filter-artifact", "to_key": "filter-feature", "type": "related"},
+    {"from_key": "integration-artifact", "to_key": "integration", "type": "related"}
+  ]
+}
