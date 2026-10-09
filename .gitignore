@@ -6,3 +6,4 @@ __pycache__/
 .beads/issues.jsonl
 .coverage
 .runtime/
+.beads.gate.lock
