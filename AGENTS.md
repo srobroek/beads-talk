@@ -6,6 +6,11 @@ git anchors are.
 
 ## Entry
 
+Keep the inherited `BEADS_DIR` and `BEADS_ACTOR` exactly as given. NEVER derive
+`BEADS_DIR` from the current directory or a linked worktree, and NEVER run
+`bd init`. Run `bd where` first and confirm it names the canonical store; on a
+mismatch, stop and report.
+
 1. Run `bd prime` and `bd dolt pull`, then `bd show EPIC --json` and `bd list --parent EPIC --all --json`.
 2. Read each descendant's acceptance, dependencies, notes and metadata
    (`state`, `branch`, `worktree`, `artifact_sha`, `head_sha`, `verification_result`)
