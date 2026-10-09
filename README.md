@@ -1,581 +1,445 @@
 # beads-talk
 
-Reproducible Beads durable-agent orchestration demo: **lose the conversation, keep the project**.
+Companion repository for the talk **Durable agent orchestration with Beads: lose
+the conversation, keep the project**.
 
-A small log-analysis CLI (`logdemo`) is built through a Beads epic: live task
-decomposition, subagents, independent review, a failed acceptance check, a
-fresh-session continuation and real GitHub delivery. The ledger, not the chat,
-carries the work across sessions.
+This README is a quick start for **your own repository**. You plan one feature as a
+Beads epic, let one or more coding agents work it, end the chat, and continue in a
+fresh session from the ledger. The stage app and the presenter's reproduction kit
+are separate; see [Try the stage app](#try-the-stage-app-optional).
 
-## Tools and versions
+## What Beads does, and what it does not
 
-| Tool | Version | Role |
-|---|---|---|
-| [Beads](https://github.com/gastownhall/beads/tree/v1.3.0) (`bd`) | 1.3.0 | Durable graph, claims, readiness, history, formulas, molecules, gates, wisps |
-| [Mardi Gras](https://github.com/quietpublish/mardi-gras/tree/v0.33.0) (`mg`) | 0.33.0 | Terminal board that reads through `bd` |
-| [Worktrunk](https://worktrunk.dev) (`wt`) | 0.80.0 | Linked git worktrees |
-| OMP coding agent (`omp`) | 18.8.0 | Lead and subagents (`task` tool) |
-| OMP Beads plugin | 4.1.3 | Guardrails on top of native Beads |
-| OMP SpecKit plugin | 0.10.2 | Source of the bundled SpecKit formulas |
-| OMP Delivery plugin | 1.4.0 | `delivery_land` PR landing receipt |
-| GitHub CLI (`gh`), `jq`, Python | 3.12+ for Python | PRs, JSON capture, application and checks (standard library only) |
+- `bd` stores a graph of work in your repository: epics, children, dependencies,
+  acceptance criteria, claims, notes, metadata and history. The ledger is a Dolt
+  database that syncs through your git remote under `refs/dolt/data`; ledger
+  sync never pushes your code branches.
+- `bd` **does not run agents or schedule work**. Your harness (Claude Code, Codex,
+  Cursor, …) or you read `bd ready` and decide who works on what. Metadata such as
+  `execution_agent_type` is a routing hint for whoever dispatches.
 
-### What runs where
+Each step below says why it exists, gives the commands to run yourself, gives a
+prompt that asks your agent to do the same, and says what you should see.
+Use whichever you prefer.
 
-- **Native Beads (`bd`)** owns the graph, atomic claims (`bd update ID --claim`),
-  readiness (`bd ready`), history (`bd history`), formulas, molecules, human
-  gates and wisps. Every `bd` command below is plain Beads.
-- **OMP** runs the agents. The lead dispatches subagents with its `task` tool and
-  lands with the Delivery plugin's `delivery_land` tool. The OMP Beads plugin
-  adds actor attribution, serialized writes to the embedded store, closure
-  safeguards and pinning to the canonical store. Nothing schedules work:
-  `metadata.execution_agent_type` is input the lead reads when it dispatches.
-- **Git and GitHub** (`git`, `gh`) carry code; `bd dolt push` carries the ledger.
-  Code and ledger sync are separate operations.
-- The workflow contract is [`AGENTS.md`](AGENTS.md) and is tool-portable.
+**Placeholders.** `<epic-id>`, `<writer-id>`, `<owner>/<repo>` and similar are
+yours to fill in. IDs are whatever `bd` prints for you (prefix = your directory
+name by default); never type an ID from this page. Commands match `bd` 1.3.0.
 
-## Repository layout
+The running example is "add CSV export to a report command". Replace it with a
+small feature from your own project.
 
-| Path | Purpose |
-|---|---|
-| `logdemo/` | CLI: `python3 -m logdemo dump FILE` (baseline) |
-| `fixtures/` | JSON Lines inputs |
-| `tests/`, `checks/acceptance.py` | Unit tests and CLI acceptance (`baseline`, `summary`, `filtered`) |
-| `demo/epic.json` | Seed graph: nine nodes, eight parent-child links, two blockers |
-| `demo/prepared-summary.patch` | Prepared summary commit with a disclosed defect |
-| `demo/summary-acceptance.md`, `demo/filter-acceptance.md` | Written acceptance contracts |
-| `prompts/` | Ready-to-paste prompts |
-| `.beads/formulas/` | `talk-delivery`, `demo-smoke` and seven bundled SpecKit formulas |
-| `AGENTS.md` | Durable agent workflow contract |
+## 1. Install `bd` and connect your repository
 
-## The disclosed defect
-
-`demo/prepared-summary.patch` is a public teaching fixture. It adds a summary
-command that counts an event as `ERROR` when its **message** contains `ERROR`,
-even when its level is `INFO`. The default kit does not apply it. Ordinary
-summary checks pass with the patch; `python3 checks/acceptance.py summary` fails
-on `fixtures/message-error.jsonl` (expected `1/0/0`). Finding and fixing this in a
-fresh session is the point of the demo.
-
-## 1. Bind the environment
-
-This walkthrough has two entry points. Do not mix them:
-
-- **Initial provisioning (this section).** The presenter runs it once per shell,
-  from the canonical checkout: the clone of this repository whose `.beads/` is
-  the run's ledger store. It is the only place `BEADS_DIR` is ever set, and only
-  when the shell does not already supply it.
-- **Already-provisioned agent entry.** Lead sessions launched in sections 6 and 7
-  inherit `BEADS_DIR`, `BEADS_ACTOR` and the hardened variables from this shell.
-  They skip this section and never rederive `BEADS_DIR`;
-  [`AGENTS.md`](AGENTS.md) has them confirm the store with `bd where` and stop on
-  a mismatch.
-
-Choose a new `RUN` for every run; runs are never reset.
+Install once per machine with one of the methods from the
+[v1.3.0 README](https://github.com/gastownhall/beads/blob/v1.3.0/README.md#-installation);
+the [installation guide](https://github.com/gastownhall/beads/blob/v1.3.0/docs/getting-started/installation.md)
+covers the install script, Windows and Linux packages.
 
 ```sh
-export RUN=rehearsal-01
-export REPO=srobroek/beads-talk
-export CANONICAL="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
-export KIT_SHA="$(git rev-parse 'demo-kit-v1^{commit}')"
-export BEADS_DIR="${BEADS_DIR:-$CANONICAL/.beads}"
-[ "$(cd "$BEADS_DIR" && pwd -P)" = "$CANONICAL/.beads" ] || { echo "STOP: inherited BEADS_DIR=$BEADS_DIR is not $CANONICAL/.beads" >&2; exit 1; }
-export GIT_TERMINAL_PROMPT=0 SSH_ASKPASS=/usr/bin/false SSH_ASKPASS_REQUIRE=force PAGER=cat GIT_PAGER=cat
-unset BEADS_DOLT_SHARED_SERVER
-export ACTOR_PREPARE="demo/$RUN/prepare"
-export ACTOR_LEAD_A="demo/$RUN/lead-a"
-export ACTOR_LEAD_B="demo/$RUN/lead-b"
-export BEADS_ACTOR="$ACTOR_PREPARE"
-export SESSIONS="$(mktemp -d)"
-export MG_BIN="$(command -v mg)"
-beads_store() {
-  [ "$(cd "$BEADS_DIR" && pwd -P)" = "$CANONICAL/.beads" ] || { echo wrong-store; return 1; }
-  bd where --json | jq -r --arg want "$(cd "$BEADS_DIR" && pwd -P)" \
-    'if .path != $want then "wrong-store" elif has("database_path") then "ready" else "missing" end'
-}
+brew install beads                              # macOS / Linux
+npm install -g @beads/bd                        # or, with Node.js
+bd version                                      # expect 1.3.0 or newer
 ```
 
-`BEADS_DIR` pins every `bd` call, from any worktree, to the canonical store. A
-value the shell already supplies is kept, never replaced; if it names another
-store, provisioning exits before any Beads command: fix the launching environment
-and open a new shell.
-
-`beads_store` asks `bd where` which store is active and prints one word: `ready`
-(the pinned canonical store holds a database), `missing` (it holds only the
-tracked setup files) or `wrong-store`. `bd where` exits 0 in all three cases
-and falls back to the current directory when `BEADS_DIR` names no directory,
-so its exit status alone proves nothing. Every ledger write below runs only
-after `test "$(beads_store)" = ready` succeeds in this shell.
-
-`SESSIONS` is a fresh system-temporary directory for private agent sessions.
-`MG_BIN` must resolve to Mardi Gras. Some systems ship an unrelated `mg` editor,
-for example `/usr/bin/mg` on macOS; put Mardi Gras first on `PATH` before binding.
-
-Create the kit tree and the run base tree. Worktrunk prints JSON; the path is read
-from it, never constructed:
+Beads syncs through your repository's `origin`, so it must point at a repository
+**you** own before you set Beads up:
 
 ```sh
-export KIT_TREE="$(wt switch -y --create --no-cd --base "$KIT_SHA" --format json "demo-kit/$RUN" | jq -r .path)"
-export BASE_TREE="$(wt switch -y --create --no-cd --base "$KIT_SHA" --format json "demo-base/$RUN" | jq -r .path)"
+cd <your-repo>
+git remote -v                                   # origin must be your repository
+git ls-remote origin refs/dolt/data             # does a ledger already exist?
 ```
 
-Source pushes in this walkthrough use `git push`; on the presenter's macOS host
-the same commands run as `dgit push`.
+### 1a. No output: create a new ledger
 
-### Ledger store on a fresh clone
-
-A fresh clone of this repository carries only the tracked `.beads/` setup files
-(`config.yaml`, `metadata.json`, formulas). The ledger itself lives on GitHub
-under `refs/dolt/data`. Check the store from the kit tree, under the pinned
-environment:
+`bd init` commits its setup files on the current branch, so give it a branch;
+step 2 adds harness files to the same branch before you merge it.
+`--skip-agents` and `--skip-hooks` keep `bd init` from writing agent
+instructions or git hooks; you choose your harness integration in step 2.
 
 ```sh
-cd "$KIT_TREE"
-beads_store
+git switch -c chore/beads-setup
+BD_NON_INTERACTIVE=1 bd init --init-if-missing --skip-hooks --skip-agents
+bd info                                         # database path and issue count
+bd dolt remote list                             # expect: origin <your repo URL>
 ```
 
-`ready`: continue with section 2. `wrong-store`: stop. `missing`: bootstrap the
-existing remote ledger, still from the kit tree:
+`bd init` wires your git `origin` as the ledger remote. If `bd dolt remote list`
+prints `No remotes configured.`, add it once, in Dolt's URL form:
 
 ```sh
-cd "$KIT_TREE"
-git ls-remote origin refs/dolt/data
-bd bootstrap --dry-run
-test -n "$(git ls-remote origin refs/dolt/data)" && test "$(beads_store)" = missing && bd bootstrap --yes
-test "$(beads_store)" = ready
-bd dolt remote list
+bd dolt remote add origin git+ssh://git@github.com/<owner>/<repo>.git
 ```
 
-`git ls-remote` must print a ref; if it prints nothing, the remote holds no
-ledger and this walkthrough stops. Per `bd bootstrap --help` (bd 1.3.0), with
-`sync.remote` configured (the tracked `config.yaml` names this repository) it
-verifies `refs/dolt/data` and clones the ledger from the remote. It never deletes
-existing issues and exits non-zero when it cannot set up a database. If `bd` warns
-that `.beads` permissions are too open, run `chmod 700 "$BEADS_DIR"`.
-`bd dolt remote list` must show `origin` pointing at this repository.
+If `bd` refuses because the URL matches your git origin, that same-repository
+layout is the documented default
+([sync concepts](https://github.com/gastownhall/beads/blob/v1.3.0/docs/core-concepts/sync-concepts.md));
+re-run with `--allow-git-origin` only if that is what you want. Never re-add a
+remote name that already exists: it is replaced silently. The generated
+`.beads/README.md` shows `bd update ID --status done`; prefer
+`bd close ID --reason "<evidence>"`.
 
-Never run `bd init` in a clone of this existing repository, never start a Dolt
-server, and never reset or re-create anything: the ledger already exists.
+### 1b. A ref is printed: join the existing ledger
 
-## 2. Check the baseline
+Someone already set Beads up. Never re-initialize over it. First see whether
+this clone already has a working database:
 
 ```sh
-cd "$KIT_TREE"
+bd info                                         # shows a database path and issue count?
+bd dolt pull                                    # yes: just fetch the latest ledger
+```
+
+If `bd info` fails or names no database (typical for a fresh clone), clone the
+ledger instead, then check again:
+
+```sh
+bd bootstrap --dry-run                          # shows what it will do
+bd bootstrap --yes
+bd info
+```
+
+`bd where` alone is not enough: it can succeed in a clone that only has the
+tracked setup files. Do not use `bd init --force`, `--reinit-local` or
+`--discard-remote` on a project that already has a ledger. No Dolt server is
+needed for normal use. Create a branch for step 2 (`git switch -c chore/beads-harness`).
+
+Or let the agent check and propose; you approve each change:
+
+> Check this repository's Beads setup: run `bd version`, `git remote -v`, `bd info`, `bd dolt remote list` and `git ls-remote origin refs/dolt/data`. Tell me whether to initialize a new ledger, bootstrap the existing one or just `bd dolt pull`, and show the exact commands. Do not run them, re-initialize an existing database, or change anything outside this repository until I say so.
+
+## 2. Connect your agent harness
+
+`bd setup <recipe>` writes instruction files and, for some tools, session hooks
+or a skill, so the agent runs `bd prime` and knows the workflow. **You** run it,
+on your setup branch (`chore/beads-setup` from 1a, or the branch you created in
+1b), and review the diff before committing. Recipes write a
+managed section between `BEGIN/END BEADS` markers; your own text in
+`AGENTS.md` or `CLAUDE.md` stays yours, re-running updates the section in place,
+and `--remove` deletes only that section
+([IDE setup, v1.3.0](https://github.com/gastownhall/beads/blob/v1.3.0/docs/getting-started/ide-setup.md)).
+
+| Harness | Install (project) | Check | Notes |
+|---|---|---|---|
+| Claude Code | `bd setup claude` | `bd setup claude --check` | SessionStart hook + `CLAUDE.md` section; `--global` writes `~/.claude/settings.json` |
+| Codex CLI | `bd setup codex` | `bd setup codex --check` | Skill + `AGENTS.md` guidance + hooks; `--global` targets your Codex home |
+| Cursor | `bd setup cursor` | `bd setup cursor --check` | Rules file, session hooks and skill |
+| Gemini CLI | `bd setup gemini --project` | `bd setup gemini --check` | Without `--project` it writes `~/.gemini/settings.json` |
+| Copilot CLI | `bd setup copilot` | `bd setup copilot --check` | CLI plugin + `.github/copilot-instructions.md`; Copilot in VS Code uses the MCP server instead |
+| OpenCode, Factory, Mux | `bd setup opencode` (or `factory`, `mux`) | `… --check` | Managed `AGENTS.md` section |
+
+```sh
+bd setup --list                                 # every recipe on your version
+bd setup codex --print                          # preview the text, writes nothing
+git diff                                        # review what setup changed
+```
+
+`--check` exits non-zero until the integration is installed. Restart the harness
+after setup so it loads the new hooks or instructions. By default `bd prime`
+gives agents conservative git authority: they propose commits and pushes rather
+than doing them. That is a good default while you learn.
+
+Or let the agent run it after you approve; the integration takes effect only
+after you restart the harness:
+
+> I use Codex CLI. Show me what `bd setup codex --print` would add and which files `bd setup codex` changes in this repository. After I approve, run `bd setup codex` (project scope, no `--global`), then `bd setup codex --check` and `git diff`, and remind me to restart Codex.
+
+**OMP** has no `bd setup` recipe. Its optional Beads plugin adds actor
+attribution, serialized ledger writes and closure safeguards; it schedules
+nothing. The workflow works without it.
+
+**Finish setup.** Commit the setup branch and merge it the way you merge any
+change. For a new ledger, publish it once:
+
+```sh
+bd dolt push                                    # expect: Push complete.
+git ls-remote origin refs/dolt/data             # expect: one ref
+```
+
+Exit status is not proof; the `refs/dolt/data` line is.
+
+**Check it works.** After the restart, in a new agent session:
+
+> Run `bd prime` and `bd ready`. In three sentences, tell me how you will track work in this repository.
+
+Expected: the agent describes claiming, ready work and closing with evidence.
+
+## 3. Create the epic
+
+An epic is the durable name of the feature. Its acceptance criteria are what
+"done" means later, for you and for any reviewer. It carries no
+`execution_agent_type`: an epic is decomposed, not dispatched.
+
+```sh
+bd create "Add CSV export to the report command" -t epic -p 1 \
+  --description "Users can export the existing report as CSV." \
+  --acceptance "report --format csv prints a header row and one row per record; default output unchanged; tests pass" \
+  --silent
+```
+
+`--silent` prints only the new ID. Copy it; it is your `<epic-id>`.
+
+Or ask the agent:
+
+> Plan "CSV export for the report command" as one Beads epic. Read the relevant code first. Create only the epic, with a description and testable acceptance criteria, then print its ID. Do not create children or edit code.
+
+## 4. Inspect: what is there, what is related, what is next
+
+```sh
+bd list --status open,in_progress --limit 0    # all open and in-progress work (default limit is 50)
+bd show <epic-id>                               # description, acceptance, notes, metadata
+bd children <epic-id>                           # every child, including closed ones
+bd graph <epic-id>                              # layers: same layer = no dependency between them
+bd ready --parent <epic-id>                     # open, unblocked, unclaimed
+bd blocked --parent <epic-id>                   # and what blocks them
+bd dep list <epic-id> --direction up            # what points at the epic
+```
+
+Beads in one graph layer have no dependency on each other; run them in parallel
+only when they also own separate files. "Ready" means nothing blocks it, not
+"needs coding": a finished but unreviewed bead is ready again once its worker
+releases it. Natural-language versions:
+
+> What open tasks are in this repository?
+
+> What tasks are in epic `<epic-id>`, and which are done, claimed or blocked?
+
+> What else in the ledger is related to, or was discovered from, `<epic-id>`?
+
+> What can be worked on next in `<epic-id>`, and why is each blocked item blocked?
+
+## 5. Split the work into children
+
+Each child gets one owner, named files, and acceptance someone else can check.
+A small feature can be a single child; split further only into independent,
+meaningful pieces that could run in parallel.
+
+```sh
+bd create "Implement CSV export with tests" -t task --parent <epic-id> \
+  --description "Add src/report/csv.py and the --format csv option in src/report/cli.py." \
+  --acceptance "report --format csv prints header and rows; tests/test_csv.py covers empty input and quoting" \
+  --metadata '{"execution_agent_type":"implementer"}' --silent
+bd children <epic-id>
+bd ready --parent <epic-id>                     # expect: the new child
+```
+
+The printed ID is your `<child-id>`. `execution_agent_type` (`implementer`,
+`researcher`, `operator`) tells whoever dispatches what kind of agent to use;
+when an agent plans the work, ask it to fill this in.
+
+Add a dependency only when one child needs another child's output or edits the
+same file; ordering preferences are not dependencies. If you split the work
+and such a dependency exists:
+
+```sh
+bd dep add <consumer-id> <prerequisite-id>      # consumer depends on prerequisite
+```
+
+Read `bd dep add A B` as **A depends on B**. Careful: `bd create --deps blocks:B`
+means the opposite (B depends on the new bead).
+
+Or ask the agent:
+
+> Decompose epic `<epic-id>` into child beads. Each child gets one owner, the files it touches, testable acceptance criteria and `execution_agent_type` metadata. Add `blocks` dependencies only where a child needs another's output or edits the same file; use `related` otherwise. Create them in one `bd create --graph` transaction after a `--dry-run`. Show me `bd graph <epic-id>` and `bd ready --parent <epic-id>`. Do not start work.
+
+## 6. Claim, work, test, report, review
+
+A claim is atomic: a second claimant is refused. Pull and look first, so you
+claim against current ledger state, then claim before you edit or create a
+branch:
+
+```sh
+bd dolt pull
+bd show <child-id>
+bd update <child-id> --claim
+git worktree add -b csv-export ../<repo>-csv-export <base-sha>   # optional: separate checkout
+```
+
+Now edit, run the tests the acceptance names, and commit in that worktree.
+Then record what you did:
+
+```sh
+bd update <child-id> --set-metadata state=reported --set-metadata branch=csv-export --set-metadata head_sha=<commit-sha>
+bd comment <child-id> "<test command> -> <result>; commit <commit-sha>"
+```
+
+`state=reported` marks finished-but-unreviewed work, so whoever dispatches skips
+it in `bd ready` instead of handing it out again.
+
+With several agents at once:
+
+- Each concurrent writer gets its own worktree cut from the same base commit.
+- Worktrees share the main checkout's ledger (`bd where` shows it), and its
+  embedded store takes one writer at a time: run every `bd` write, including
+  claims and `bd dolt pull`/`push`, one after another, never in parallel.
+- Give every agent its own actor on every `bd` call (`--actor <name>` or
+  `BEADS_ACTOR=<name>`). Claims are per actor and re-claiming your own bead
+  succeeds, so two agents sharing one name can both "claim" the same bead.
+
+**When is a child done?** The worker reports; it never closes its own bead.
+The lead (you or your lead agent) has the commit reviewed against the
+acceptance, merges it into the feature branch, and then closes the child with
+that evidence. Closing releases anything that depends on it. The epic stays open
+until the whole feature is reviewed and delivered (step 8). A rejected child
+stays open.
+
+```sh
+bd close <child-id> --reason "Reviewed <commit-sha>: <test command> -> pass; merged into <feature-branch>"
+```
+
+Review is independent: a fresh agent (or a person) checks the commit against the
+acceptance, without fixing anything. A defect becomes its own durable bead,
+linked to where it was found:
+
+```sh
+bd create "CSV export drops quotes around names with commas" -t bug --parent <epic-id> \
+  --deps discovered-from:<child-id> \
+  --acceptance "names containing commas are quoted; regression test added" \
+  --metadata '{"execution_agent_type":"implementer"}' --silent
+```
+
+Prompts:
+
+> Work epic `<epic-id>`. Take items from `bd ready --parent <epic-id>`, skipping any with `state=reported` metadata. Before each claim, run `bd dolt pull` and `bd show ID`, then claim with `bd update ID --claim` before editing. Give each concurrent writer its own git worktree from one base commit and its own actor name; run `bd` writes one at a time. If you can run subagents, dispatch independent children in one parallel batch; otherwise do them one at a time. Each worker runs the tests its acceptance names, commits, records `state=reported`, branch, commit and result on the bead, and reports. Workers never close beads.
+
+> Review bead `<child-id>` at commit `<commit-sha>` against its acceptance criteria. Read-only: run the named checks and report PASS or FAIL with the commands and output. For a defect, state expected versus observed behavior. Do not fix it.
+
+## 7. Checkpoint, then continue in a fresh session
+
+The conversation is disposable; the ledger is the handoff. Before ending a
+session, commit, write what matters onto the beads, release the claims you
+still hold on open beads (a child you are working on, the epic if you claimed
+it) and sync. Never unclaim a closed bead: `bd unclaim` reopens it.
+
+```sh
+bd update <epic-id> --append-notes "CSV export at <commit-sha>, tests pass. Bug <bug-id> open. Next: fix bug, then deliver."
+bd unclaim <child-id>                           # only if still open and claimed by you
+bd unclaim <epic-id>                            # only if you claimed it
+bd dolt push
+```
+
+Or ask the agent:
+
+> Checkpoint epic `<epic-id>`: wait until no worker is editing, make sure every change is committed, append findings, commit SHAs, check results and remaining work to the epic notes, release only the claims you hold on open beads, and run `bd dolt push`. Then tell me it is safe to end the session.
+
+Start a new session with no history and give it only this:
+
+> Continue epic `<epic-id>` in this repository.
+
+Expected: the agent runs `bd prime` and `bd show`, finds the notes, the open bug,
+the recorded branch and commit, and what is ready; it reuses existing branches
+and worktrees instead of starting over. Anything only in the old transcript is
+gone, which is why anchors go on the beads.
+
+## 8. Deliver: pull request, checks, your decision, merge, then close the epic
+
+Close the epic after the feature has actually merged. Code and ledger sync
+separately: `git push` never moves the ledger, and `bd dolt push` never moves code.
+These examples use GitHub's `gh`; use your host's equivalent.
+
+```sh
+git push -u origin <feature-branch>
+gh pr create --draft --title "feat: CSV export for reports" --body "Bead: <epic-id>"
+gh pr view <pr-number> --json headRefOid       # the exact commit under review
+gh pr checks <pr-number>                       # CI for that commit
+```
+
+You review the evidence for that head commit and decide. A new commit needs a
+new review. After you merge under your normal policy:
+
+```sh
+gh pr view <pr-number> --json state,mergeCommit # expect: MERGED and a merge SHA
+bd update <epic-id> --set-metadata pr=<pr-number> --set-metadata merge_sha=<merge-sha>
+bd close <epic-id> --reason "Merged <pr-url> (<merge-sha>); epic acceptance verified: <test command> -> pass"
+bd dolt push
+```
+
+Trying it locally without a pull request is fine: close the epic after your own
+review, with the test command and commit as evidence.
+
+## End-to-end orchestration prompt
+
+Paste this into a lead session once steps 1 through 3 are done. It stops before merging.
+
+```text
+You are the lead for Beads epic <epic-id> in this repository.
+
+Scope: only the feature the epic describes. No unrelated refactors, new
+dependencies, servers or persistence.
+
+1. Run bd prime, bd dolt pull, bd show <epic-id> and bd children <epic-id>.
+   Read acceptance, dependencies, notes and metadata before acting.
+   Claim the epic with bd update <epic-id> --claim; if refused, stop and report.
+2. If there are no children, decompose the epic: one owner per child, named
+   files, testable acceptance, execution_agent_type metadata, blocks edges only
+   for real output or same-file dependencies. Dry-run, then create them in one
+   bd create --graph transaction. Show me the graph before dispatching.
+3. Dispatch from bd ready --parent <epic-id>, skipping beads with
+   state=reported. Claim each bead before work. Concurrent writers get
+   separate git worktrees from one recorded base commit and distinct actor
+   names on every bd call; run bd writes one at a time. Run independent beads
+   in parallel if you have subagents; otherwise sequentially. Workers commit,
+   run the checks their acceptance names, record state=reported, branch,
+   commit and results on the bead, report, and release their own claim.
+   Workers never close beads.
+4. Have an agent that did not write the code review each result against its
+   acceptance at an exact commit. On PASS, merge it into the feature branch and
+   close the child with the commit and check results as evidence. On FAIL,
+   leave the child open and record a bug bead parented to the epic, linked
+   discovered-from the reviewed bead. Never close the epic early.
+5. Before you stop for any reason: wait for workers to commit and release,
+   append findings, commit SHAs, checks and remaining work to the epic notes,
+   release your claim and run bd dolt push.
+6. When every child is closed: run the repository's full verification once on
+   the integrated feature branch, then have a fresh reviewer check the whole
+   feature against the epic acceptance at that exact head. Per-child reviews do
+   not prove the integration. Then push the feature branch, open a draft PR with
+   "Bead: <epic-id>" in the body, and wait for green CI on the exact head.
+   Then STOP and show me the head SHA, review results and CI status.
+   Do not merge, approve or close the epic without my explicit acceptance.
+7. After I confirm the merge, record pr and merge_sha on the epic, close it
+   with that evidence, and run bd dolt push.
+```
+
+## Going further (optional)
+
+- **Graph plans.** `bd create --graph plan.json --dry-run` creates many beads and
+  edges in one transaction; nodes use `key`, `parent_key`/`parent_id` and
+  `acceptance_criteria`, edges live in a top-level `edges` array. Check the
+  dry-run counts before the real run.
+- **Formulas, molecules, gates.** A formula is a reusable workflow template; `bd mol pour`
+  turns it into a molecule of real beads, and a human gate (`bd gate resolve <gate-id>`)
+  blocks a step until a person decides. `bd mol wisp` creates ephemeral molecules:
+  never the only copy of a decision. See the
+  [v1.3.0 docs](https://github.com/gastownhall/beads/tree/v1.3.0/docs).
+- **Mardi Gras.** A terminal board over `bd`:
+  [quietpublish/mardi-gras](https://github.com/quietpublish/mardi-gras/tree/v0.33.0);
+  run `mg -no-animations`.
+- **SpecKit.** `.beads/formulas/` here carries the SpecKit plugin's Beads
+  formulas as examples of spec-driven workflows; real SpecKit work uses its own
+  approval-aware starter.
+- **Shared Dolt server.** Not needed for one repository. Read the
+  [Dolt architecture notes](https://github.com/gastownhall/beads/blob/v1.3.0/docs/architecture/dolt.md)
+  before considering it.
+
+## Try the stage app (optional)
+
+The talk builds a small log-summary CLI (`logdemo/`, standard-library Python 3.12+).
+To look at its baseline:
+
+```sh
+git clone https://github.com/srobroek/beads-talk.git
+cd beads-talk
 python3 -m unittest discover -s tests
 python3 checks/acceptance.py baseline
 python3 -m logdemo dump fixtures/demo.jsonl
 ```
 
-Expected: tests and baseline acceptance pass; `dump` prints the four records of
-`fixtures/demo.jsonl` as a JSON array in input order. `summary` and `filtered`
-acceptance fail because those features do not exist yet.
-
-## 3. Publish the run base branch
-
-```sh
-git -C "$BASE_TREE" push -u origin "demo-base/$RUN"
-git ls-remote origin "refs/heads/demo-base/$RUN"
-```
-
-This branch is the run's PR destination, not the default branch.
-
-## 4. Seed the epic
-
-Confirm the pinned store before the first ledger write; continue only when this
-exits 0:
-
-```sh
-cd "$KIT_TREE"
-test "$(beads_store)" = ready
-```
-
-Then seed:
-
-```sh
-cd "$KIT_TREE"
-bd dolt pull
-BEADS_ACTOR="$ACTOR_PREPARE" bd create --graph demo/epic.json --dry-run --json
-BEADS_ACTOR="$ACTOR_PREPARE" bd create --graph demo/epic.json --json > "$SESSIONS/seed.json"
-jq . "$SESSIONS/seed.json"
-```
-
-The dry run reports `node_count: 9`, `parent_deps: 8` and `edge_count: 5`
-(two `blocks`, three `related`). IDs are assigned at runtime; read them from the
-live output's key-to-ID map:
-
-```sh
-export EPIC="$(jq -r .ids.epic "$SESSIONS/seed.json")"
-export SUMMARY="$(jq -r .ids.summary "$SESSIONS/seed.json")"
-export FILTER_FEATURE="$(jq -r '.ids["filter-feature"]' "$SESSIONS/seed.json")"
-export FILTER_ARTIFACT="$(jq -r '.ids["filter-artifact"]' "$SESSIONS/seed.json")"
-export INTEGRATION_ARTIFACT="$(jq -r '.ids["integration-artifact"]' "$SESSIONS/seed.json")"
-export MERGE="$(jq -r .ids.merge "$SESSIONS/seed.json")"
-BEADS_ACTOR="$ACTOR_PREPARE" bd update "$MERGE" --set-metadata "branch=demo-delivery/$RUN" --set-metadata "origin_actor=$ACTOR_LEAD_A" --set-metadata "demo_run=$RUN"
-```
-
-### Graph shape
-
-```
-epic: Deliver service-filtered log summaries
-├── summary               implementer   prepared code
-├── review-summary        researcher    read-only review
-├── filter-feature        (feature)     decomposed live
-├── integration           implementer   blocked by summary-accepted, filter-artifact
-├── merge                 operator      labels pr:merge, agent:shepherd
-├── summary-accepted      operator      label demo:milestone
-├── filter-artifact       operator      label demo:milestone
-└── integration-artifact  operator      label demo:milestone
-```
-
-Blockers point from dependent to prerequisite: `integration` needs both
-`summary-accepted` and `filter-artifact`. Milestone carriers are `related` to the
-code they certify. No blocker duplicates a parent-child link.
-
-```sh
-bd show "$EPIC"
-bd graph "$EPIC"
-bd ready --parent "$EPIC" --json
-```
-
-### Readiness versus dispatch
-
-Raw readiness lists **7** descendants: `summary`, `review-summary`,
-`filter-feature`, `merge` and the three milestones. Only `integration` is blocked.
-Ready means unblocked, not "needs coding". The dispatch view excludes outcome
-containers, milestones and the merge carrier:
-
-```sh
-bd ready --parent "$EPIC" --exclude-label demo:milestone,pr:merge --exclude-type epic,feature --json
-```
-
-That leaves `summary` and `review-summary`. Once preparation marks `summary`
-`state=reported` (section 5), the lead discards it: reported code needs review,
-not more coding. Dispatch starts with `review-summary` alone, until the lead
-decomposes `filter-feature`.
-
-## 5. Prepare the summary commit and delivery tree
-
-```sh
-bd dolt pull
-BEADS_ACTOR="$ACTOR_PREPARE" bd update "$SUMMARY" --claim
-export SUMMARY_TREE="$(wt switch -y --create --no-cd --base "$KIT_SHA" --format json "demo-summary/$RUN" | jq -r .path)"
-cd "$SUMMARY_TREE"
-git apply demo/prepared-summary.patch
-git add -A
-git commit -m "feat: add level summary"
-export SUMMARY_SHA="$(git rev-parse HEAD)"
-python3 checks/acceptance.py summary
-```
-
-The last command fails on the message boundary, as disclosed. Only now, after the
-real commit, mark the bead reported and release the claim; it stays open:
-
-```sh
-BEADS_ACTOR="$ACTOR_PREPARE" bd update "$SUMMARY" --set-metadata state=reported --set-metadata "branch=demo-summary/$RUN" --set-metadata "artifact_sha=$SUMMARY_SHA" --set-metadata "demo_run=$RUN"
-BEADS_ACTOR="$ACTOR_PREPARE" bd unclaim "$SUMMARY" --if-assignee="$ACTOR_PREPARE"
-```
-
-The epic owns the delivery tree. Claim the epic, create the tree, merge the
-prepared summary into it, then release so the lead claims the epic itself:
-
-```sh
-bd dolt pull
-BEADS_ACTOR="$ACTOR_LEAD_A" bd update "$EPIC" --claim
-export DELIVERY_TREE="$(wt switch -y --create --no-cd --base "$KIT_SHA" --format json "demo-delivery/$RUN" | jq -r .path)"
-git -C "$DELIVERY_TREE" merge --no-ff "demo-summary/$RUN" -m "merge prepared summary"
-relpath() { python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$1" "$CANONICAL"; }
-BEADS_ACTOR="$ACTOR_PREPARE" bd update "$SUMMARY" --set-metadata "base_sha=$KIT_SHA" --set-metadata "worktree=$(relpath "$SUMMARY_TREE")"
-BEADS_ACTOR="$ACTOR_LEAD_A" bd update "$EPIC" --set-metadata "demo_run=$RUN" --set-metadata "base_sha=$KIT_SHA" --set-metadata "branch=demo-delivery/$RUN" --set-metadata "worktree=$(relpath "$DELIVERY_TREE")" --set-metadata "head_sha=$(git -C "$DELIVERY_TREE" rev-parse HEAD)"
-BEADS_ACTOR="$ACTOR_LEAD_A" bd unclaim "$EPIC" --if-assignee="$ACTOR_LEAD_A"
-```
-
-## 6. Lead A: decompose, dispatch, find the defect
-
-Print the start prompt with the epic bound:
-
-```sh
-sed "s/EPIC_ID/$EPIC/g" "$KIT_TREE/prompts/start.md"
-```
-
-Launch the lead with an empty session directory and paste that output:
-
-```sh
-mkdir -p "$SESSIONS/lead-a"
-BEADS_ACTOR="$ACTOR_LEAD_A" omp --cwd "$DELIVERY_TREE" --session-dir "$SESSIONS/lead-a"
-```
-
-The lead creates the two `filter-feature` children in one native graph
-transaction, of this shape (`parent_id` and the carrier ID are the runtime IDs):
-
-```json
-{
-  "nodes": [
-    {"key": "filter-impl", "parent_id": "<FILTER_FEATURE>", "type": "task",
-     "title": "Implement filter_service with tests",
-     "acceptance_criteria": "logdemo/filtering.py and tests/test_filtering.py meet demo/filter-acceptance.md; python3 -m unittest tests.test_filtering passes",
-     "metadata": {"execution_agent_type": "implementer"}},
-    {"key": "filter-verify", "parent_id": "<FILTER_FEATURE>", "type": "task",
-     "title": "Verify filter contract on the inspected artifact",
-     "acceptance_criteria": "Read-only: records the artifact SHA and expected versus observed results for every case in demo/filter-acceptance.md",
-     "metadata": {"execution_agent_type": "researcher"}}
-  ],
-  "edges": [
-    {"from_key": "filter-verify", "to_id": "<FILTER_ARTIFACT>", "type": "blocks"}
-  ]
-}
-```
-
-Expected: the filter implementer works in its own worktree cut from `KIT_SHA`;
-the summary reviewer reads the existing summary tree read-only and gets only the
-acceptance and the artifact SHA. After the filter commit is inspected, the lead
-closes `filter-artifact` and dispatches the verifier. The failed boundary
-acceptance becomes a bug parented to the epic; the lead does not fix it,
-checkpoints and releases its epic claim.
-
-While work runs, watch the board:
-
-```sh
-"$MG_BIN" -no-animations
-```
-
-Use only `j`/`k` or arrows, `Enter`, `Esc`, `?` and `q`. If the TUI is
-unavailable, `"$MG_BIN" -status` prints the state once.
-
-### Optional: ask the ledger (read-only)
-
-These queries are optional and read-only; nothing in later sections depends on
-them. A live answer takes as long as the lead session and `bd` take. If that
-would overrun the stage budget, show answers recorded during a rehearsal or skip
-this part.
-
-Rebind the epic from the seed output immediately before rendering, then paste
-any printed line into a lead session:
-
-```sh
-EPIC="$(jq -er .ids.epic "$SESSIONS/seed.json")" &&
-  sed "s/EPIC_ID/$EPIC/g" "$KIT_TREE/prompts/discover.md"
-```
-
-`jq -e` fails instead of printing `null` when the seed output lacks the epic, so
-no prompt renders with a wrong ID.
-
-The native equivalents, equally read-only:
-
-```sh
-bd list --status open --type task --json
-bd list --parent "$EPIC" --all --json
-export EPIC_SCOPE="$EPIC $(bd list --parent "$EPIC" --all --json | jq -r '.[].id' | tr '\n' ' ')"
-bd dep list $EPIC_SCOPE --direction down --type related --json
-bd dep list $EPIC_SCOPE --direction up --type related --json
-bd dep list $EPIC_SCOPE --direction up --type discovered-from --json
-bd dep list $EPIC_SCOPE --direction down --type discovered-from --json
-bd ready --parent "$EPIC" --json
-bd blocked --parent "$EPIC" --json
-```
-
-"All tasks related to the epic" is wider than its descendants: the `dep list`
-calls add beads linked `related` or `discovered-from` to the epic or any
-descendant, in both directions. The JSON shapes differ: `down` returns edge rows
-(`issue_id`, `depends_on_id`), `up` returns issue rows (`id`, `dependency_type`).
-
-"What's next" distinguishes ready, blocked, claimed (`assignee`) and
-`metadata.state=reported` rows.
-
-## 7. Lead B: a fresh session
-
-Exit lead A. Launch a new lead with a **different, empty** session directory and
-no resume, continue, fork or import:
-
-```sh
-sed "s/EPIC_ID/$EPIC/g" "$KIT_TREE/prompts/resume.md"
-mkdir -p "$SESSIONS/lead-b"
-BEADS_ACTOR="$ACTOR_LEAD_B" omp --cwd "$DELIVERY_TREE" --session-dir "$SESSIONS/lead-b"
-```
-
-Paste the single printed line, `Continue epic <id> in this repository.`, and
-nothing else. Everything else comes from the ledger and `AGENTS.md`. Expected:
-the new lead finds the fix bug, the filter progress and the recorded worktrees,
-fixes the defect, integrates and passes:
-
-```sh
-cd "$DELIVERY_TREE"
-python3 -m logdemo summary fixtures/demo.jsonl --service api
-python3 checks/acceptance.py filtered
-```
-
-This demonstrates lost conversational context, not crash recovery.
-
-## 8. Delivery molecule
-
-`bd` finds formulas by name in the active store's `formulas/` and in the current
-checkout's `.beads/formulas/`. Run these from the delivery tree, which carries
-the kit formulas; nothing is copied into the canonical checkout.
-
-```sh
-cd "$DELIVERY_TREE"
-bd formula show talk-delivery
-bd mol pour talk-delivery --var "feature=log-summary-$RUN" --dry-run
-BEADS_ACTOR="$ACTOR_LEAD_B" bd mol pour talk-delivery --var "feature=log-summary-$RUN" --json > "$SESSIONS/mol.json"
-jq . "$SESSIONS/mol.json"
-export MOL="$(jq -r .new_epic_id "$SESSIONS/mol.json")"
-```
-
-Read step IDs from `id_mapping` in that JSON; never construct them. Formula steps
-carry no acceptance field in bd 1.3.0, so the lead sets each step's acceptance
-with `bd update STEP --acceptance "..."` after pouring, then links the molecule:
-`verify` blocked by `integration-artifact`, the root `related` to the epic, and
-`land` `related` to the merge bead.
-
-```sh
-bd mol current "$MOL"
-bd mol show "$MOL" --parallel
-bd ready --mol "$MOL"
-```
-
-These molecule views follow only the molecule's internal edges. They still list
-`verify` as ready even while the external `integration-artifact` blocker is
-open. Before dispatching any step, check the real state:
-
-```sh
-bd show "$VERIFY_STEP" --json
-bd dep list "$VERIFY_STEP" --json
-bd blocked --json
-```
-
-`VERIFY_STEP` is the `verify` ID from `id_mapping`.
-
-Steps: `verify` (researcher) → `approve` (operator, human gate) → `land`
-(operator) → `record` (operator). `land` stays blocked until a human accepts the
-current head and evidence and the gate is resolved with
-`bd gate resolve <gate-id> --reason "<what was accepted, at which head SHA>"`.
-
-### Transient wisp
-
-```sh
-cd "$DELIVERY_TREE"
-bd mol wisp demo-smoke --var "run=$RUN" --json
-bd mol wisp list
-```
-
-Wisps are local and ephemeral. Durable conclusions go on a regular bead.
-
-## 9. Review and landing
-
-```sh
-cd "$DELIVERY_TREE"
-git push -u origin "demo-delivery/$RUN"
-cat > "$SESSIONS/pr-body.md" <<EOF
-Adds \`python3 -m logdemo summary FILE [--service NAME]\`: level counts for all
-events or one exact service.
-
-Why: demo epic $EPIC, delivered through a durable Beads ledger.
-
-Test plan:
-- python3 -m unittest discover -s tests
-- python3 checks/acceptance.py baseline
-- python3 checks/acceptance.py summary
-- python3 checks/acceptance.py filtered
-
-Bead: $EPIC
-EOF
-printf 'Closes-Bead: %s\n' $IMPLEMENTED_IDS >> "$SESSIONS/pr-body.md"
-gh pr create --repo "$REPO" --draft --base "demo-base/$RUN" --head "demo-delivery/$RUN" --title "feat: add service-filtered log summaries" --body-file "$SESSIONS/pr-body.md"
-export PR="$(gh pr view "demo-delivery/$RUN" --repo "$REPO" --json number -q .number)"
-export HEAD_SHA="$(gh pr view "$PR" --repo "$REPO" --json headRefOid -q .headRefOid)"
-sed -e "s/PR_NUMBER/$PR/g" -e "s/HEAD_SHA/$HEAD_SHA/g" "$KIT_TREE/prompts/review.md"
-```
-
-`IMPLEMENTED_IDS` holds the space-separated IDs of the implementation beads that
-land in this PR (summary, fix, filter implementation, integration), read from
-`bd list --parent "$EPIC" --all --json`. A fresh independent reviewer gets the
-printed review prompt. The lead writes the reviewer's actual result, never an
-invented one, to `$SESSIONS/review-comment.md` in this shape and posts it from
-the author's account with
-`gh pr comment "$PR" --repo "$REPO" --body-file "$SESSIONS/review-comment.md"`:
-
-```
-VERDICT: APPROVE
-Reviewed-Head: <full 40-hex headRefOid>
-Checks: <commands and exit statuses>
-Independent agent review posted by the PR author's account; not a separate GitHub-user approval.
-```
-
-```sh
-gh pr view "$PR" --repo "$REPO" --json headRefOid,comments
-gh pr checks "$PR" --repo "$REPO"
-```
-
-Landing requires `Reviewed-Head` equal to the current `headRefOid`, green
-`verify` CI for that head and the resolved human gate. Any new commit needs a
-new review. Then `gh pr ready "$PR" --repo "$REPO"`, and the lead calls the
-Delivery plugin's `delivery_land` tool (an OMP tool, not a shell command) with
-arguments of this shape:
-
-```json
-{"repo": "srobroek/beads-talk", "pr": 12, "merge_method": "squash",
- "expectHeadSha": "<reviewed 40-hex SHA>", "worktree": "<delivery tree>", "beadId": "<epic id>"}
-```
-
-`pr` is the literal PR number. The tool does not check the review; the lead does.
-
-The receipt must show `MERGED`, the reviewed head, base `demo-base/$RUN` and the
-merge SHA. Then the merge bead closes first, children before parents, and the
-ledger syncs:
-
-```sh
-gh pr view "$PR" --repo "$REPO" --json state,baseRefName,headRefOid,mergeCommit
-bd history "$EPIC" --events
-bd dolt push
-git ls-remote origin refs/dolt/data
-```
-
-## SpecKit formula example
-
-`.beads/formulas/` carries seven formulas copied byte-for-byte from the OMP
-SpecKit plugin 0.10.2 (`formulas/` directory), names unchanged:
-`speckit-basic`, `speckit-lean`, `speckit-feature`, `mol-speckit-bugfix`,
-`mol-speckit-fix-findings`, `mol-speckit-iterate`, `mol-speckit-refine`.
-
-The demo only instantiates the template; no specification phase runs, and no
-`.specify/` scaffolding or `tasks.md` exists.
-
-Before the real pour, ask the presenter whether this sample keeps human
-approval gates, and bind their actual answer. `autonomous=no` keeps the gates:
-
-```sh
-export APPROVAL_ANSWER='REPLACE with the presenter'"'"'s exact answer'
-```
-
-```sh
-cd "$DELIVERY_TREE"
-bd formula show speckit-basic
-bd cook .beads/formulas/speckit-basic.formula.toml --var "feature=001-formula-only-$RUN" --var autonomous=no --dry-run
-bd mol pour speckit-basic --var "feature=001-formula-only-$RUN" --var autonomous=no --dry-run
-BEADS_ACTOR="$ACTOR_LEAD_B" bd mol pour speckit-basic --var "feature=001-formula-only-$RUN" --var autonomous=no --json > "$SESSIONS/speckit.json"
-export SPEC_MOL="$(jq -r .new_epic_id "$SESSIONS/speckit.json")"
-BEADS_ACTOR="$ACTOR_LEAD_B" bd update "$SPEC_MOL" --spec-id "001-formula-only-$RUN" --set-metadata human_approvals=yes --set-metadata autonomous=no --set-metadata demo_kind=formula-only --set-metadata "approval_choice=$APPROVAL_ANSWER"
-bd mol current "$SPEC_MOL"
-bd ready --mol "$SPEC_MOL"
-```
-
-With `autonomous=no`, the human approval gates stay in the molecule;
-`id_mapping` in `$SESSIONS/speckit.json` names each step, and the lead stamps
-the same `spec_id` on them. Unperformed
-phases stay open. Label any instance `formula instantiated; specification phases
-not executed`.
-
-Real SpecKit work does not pour by hand. It uses the plugin's approval-aware
-starter, which records the explicit approval answer and forces its working
-directory and `BEADS_DIR` to `<workspace>/.beads`:
-
-```sh
-bun <speckit-plugin>/tools/spec-start.ts --spec NNN-slug --workspace <canonical-project> --profile speckit-basic --approvals yes --decision '<explicit answer>' --beads-plugin <beads-plugin>
-```
-
-This demo does not run the starter: forced to the canonical checkout, it would
-not see the formulas that live in the linked worktrees.
-
-## Workflow contract
-
-See [`AGENTS.md`](AGENTS.md): entry, readiness versus dispatch, claims and
-release, metadata conventions, findings, reporting line and landing policy.
+This clone is configured for the talk's own ledger. Use it to read code, not to
+practise Beads: do not run `bd init`, `bd bootstrap` or `bd dolt push` in it.
+Its [`AGENTS.md`](AGENTS.md) is a stage-specific contract (seeded milestones,
+fixed actors, demo metadata); borrow ideas from it, but don't transplant it into
+your project unchanged.
+
+The presenter's full reproduction, pinned to tag `demo-kit-v1`, is in
+[docs/presenter-reproduction.md](docs/presenter-reproduction.md).
