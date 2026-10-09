@@ -76,10 +76,10 @@ Choose a new `RUN` for every run; runs are never reset.
 ```sh
 export RUN=rehearsal-01
 export REPO=srobroek/beads-talk
-export CANONICAL="$(git rev-parse --show-toplevel)"
+export CANONICAL="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 export KIT_SHA="$(git rev-parse 'demo-kit-v1^{commit}')"
 export BEADS_DIR="${BEADS_DIR:-$CANONICAL/.beads}"
-[ "$BEADS_DIR" = "$CANONICAL/.beads" ] || echo "STOP: inherited BEADS_DIR=$BEADS_DIR is not $CANONICAL/.beads" >&2
+[ "$(cd "$BEADS_DIR" && pwd -P)" = "$CANONICAL/.beads" ] || { echo "STOP: inherited BEADS_DIR=$BEADS_DIR is not $CANONICAL/.beads" >&2; exit 1; }
 export GIT_TERMINAL_PROMPT=0 SSH_ASKPASS=/usr/bin/false SSH_ASKPASS_REQUIRE=force PAGER=cat GIT_PAGER=cat
 unset BEADS_DOLT_SHARED_SERVER
 export ACTOR_PREPARE="demo/$RUN/prepare"
@@ -89,7 +89,7 @@ export BEADS_ACTOR="$ACTOR_PREPARE"
 export SESSIONS="$(mktemp -d)"
 export MG_BIN="$(command -v mg)"
 beads_store() {
-  [ "$BEADS_DIR" = "$CANONICAL/.beads" ] || { echo wrong-store; return 1; }
+  [ "$(cd "$BEADS_DIR" && pwd -P)" = "$CANONICAL/.beads" ] || { echo wrong-store; return 1; }
   bd where --json | jq -r --arg want "$(cd "$BEADS_DIR" && pwd -P)" \
     'if .path != $want then "wrong-store" elif has("database_path") then "ready" else "missing" end'
 }
@@ -97,8 +97,8 @@ beads_store() {
 
 `BEADS_DIR` pins every `bd` call, from any worktree, to the canonical store. A
 value the shell already supplies is kept, never replaced; if it names another
-store, the check prints `STOP` and `beads_store` refuses every later step: fix
-the launching environment and open a new shell.
+store, provisioning exits before any Beads command: fix the launching environment
+and open a new shell.
 
 `beads_store` asks `bd where` which store is active and prints one word: `ready`
 (the pinned canonical store holds a database), `missing` (it holds only the
