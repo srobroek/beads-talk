@@ -4,26 +4,36 @@ Companion repository for the talk **Durable agent orchestration with Beads: lose
 the conversation, keep the project**.
 
 This README is a quick start for **your own repository**. You plan one feature as a
-Beads epic, let one or more coding agents work it, end the chat, and continue in a
-fresh session from the ledger. The stage app is separate; see
+Beads epic and let one or more coding agents work it. Then you end the chat and
+continue in a fresh session from the ledger. The stage app is separate; see
 [Try the stage app](#try-the-stage-app-optional).
 
 ## What Beads does, and what it does not
 
-- `bd` stores a graph of work in your repository: epics, children, dependencies,
-  acceptance criteria, claims, notes, metadata and history. The ledger is a Dolt
-  database that syncs through your git remote under `refs/dolt/data`; ledger
-  sync never pushes your code branches.
-- `bd` **does not run agents or schedule work**. Your harness (Claude Code, Codex,
-  Cursor, …) or you read `bd ready` and decide who works on what. Metadata such as
-  `execution_agent_type` is a routing hint for whoever dispatches.
+- `bd` stores a graph of work in your repository:
+  - epics and their children;
+  - dependencies;
+  - acceptance criteria and claims;
+  - notes, metadata and history.
 
-Each step below says why it exists, gives the commands to run yourself, gives a
-prompt that asks your agent to do the same, and says what you should see.
+  The ledger is a Dolt database that syncs through your git remote under
+  `refs/dolt/data`. Ledger sync never pushes your code branches.
+- `bd` **does not run agents or schedule work**. You or your harness read
+  `bd ready` and decide who works on what. Harnesses include Claude Code, Codex
+  and Cursor. Metadata such as `execution_agent_type` is a routing hint for
+  whoever dispatches.
+
+Each step below gives:
+
+- why the step exists;
+- the commands to run yourself;
+- a prompt that asks your agent to do the same;
+- what you should see.
+
 Use whichever you prefer.
 
-**Placeholders.** `<epic-id>`, `<writer-id>`, `<owner>/<repo>` and similar are
-yours to fill in. IDs are whatever `bd` prints for you (prefix = your directory
+**Placeholders.** Values in angle brackets, such as `<epic-id>` or `<owner>/<repo>`,
+are yours to fill in. IDs are whatever `bd` prints for you (prefix = your directory
 name by default); never type an ID from this page. Commands match `bd` 1.3.0.
 
 The running example is "add CSV export to a report command". Replace it with a
@@ -31,10 +41,10 @@ small feature from your own project.
 
 ## 1. Install `bd` and connect your repository
 
-Install once per machine with one of the methods from the
-[v1.3.0 README](https://github.com/gastownhall/beads/blob/v1.3.0/README.md#-installation);
-the [installation guide](https://github.com/gastownhall/beads/blob/v1.3.0/docs/getting-started/installation.md)
-covers the install script, Windows and Linux packages.
+Install `bd` once per machine. Pick one of the methods from the
+[v1.3.0 README](https://github.com/gastownhall/beads/blob/v1.3.0/README.md#-installation).
+The [installation guide](https://github.com/gastownhall/beads/blob/v1.3.0/docs/getting-started/installation.md)
+also covers the installation script and the Windows and Linux packages.
 
 ```sh
 brew install beads                              # macOS / Linux
@@ -53,10 +63,10 @@ git ls-remote origin refs/dolt/data             # does a ledger already exist?
 
 ### 1a. No output: create a new ledger
 
-`bd init` commits its setup files on the current branch, so give it a branch;
-step 2 adds harness files to the same branch before you merge it.
+`bd init` commits its setup files on the current branch, so give it a branch.
+Step 2 adds harness files to the same branch before you merge it.
 `--skip-agents` and `--skip-hooks` keep `bd init` from writing agent
-instructions or git hooks; you choose your harness integration in step 2.
+instructions or git hooks. You choose your harness integration in step 2.
 
 ```sh
 git switch -c chore/beads-setup
@@ -72,10 +82,10 @@ prints `No remotes configured.`, add it once, in Dolt's URL form:
 bd dolt remote add origin git+ssh://git@github.com/<owner>/<repo>.git
 ```
 
-If `bd` refuses because the URL matches your git origin, that same-repository
+`bd` may refuse because the URL matches your git origin. That same-repository
 layout is the documented default
-([sync concepts](https://github.com/gastownhall/beads/blob/v1.3.0/docs/core-concepts/sync-concepts.md));
-re-run with `--allow-git-origin` only if that is what you want. Never re-add a
+([sync concepts](https://github.com/gastownhall/beads/blob/v1.3.0/docs/core-concepts/sync-concepts.md)).
+Re-run with `--allow-git-origin` only if that is what you want. Never re-add a
 remote name that already exists: it is replaced silently. The generated
 `.beads/README.md` shows `bd update ID --status done`; prefer
 `bd close ID --reason "<evidence>"`.
@@ -90,8 +100,8 @@ bd info                                         # shows a database path and issu
 bd dolt pull                                    # yes: just fetch the latest ledger
 ```
 
-If `bd info` fails or names no database (typical for a fresh clone), clone the
-ledger instead, then check again:
+A fresh clone usually has no database yet, so `bd info` fails or names none.
+In that case, clone the ledger instead. Then check again:
 
 ```sh
 bd bootstrap --dry-run                          # shows what it will do
@@ -106,18 +116,29 @@ needed for normal use. Create a branch for step 2 (`git switch -c chore/beads-ha
 
 Or let the agent check and propose; you approve each change:
 
-> Check this repository's Beads setup: run `bd version`, `git remote -v`, `bd info`, `bd dolt remote list` and `git ls-remote origin refs/dolt/data`. Tell me whether to initialize a new ledger, bootstrap the existing one or just `bd dolt pull`, and show the exact commands. Do not run them, re-initialize an existing database, or change anything outside this repository until I say so.
+> Check this repository's Beads setup. Run these commands:
+>
+> - `bd version`
+> - `git remote -v`
+> - `bd info`
+> - `bd dolt remote list`
+> - `git ls-remote origin refs/dolt/data`
+>
+> Tell me whether to initialize a new ledger, bootstrap the existing one or just `bd dolt pull`. Show the exact commands. Do not run them, re-initialize an existing database, or change anything outside this repository until I say so.
 
 ## 2. Connect your agent harness
 
-`bd setup <recipe>` writes instruction files and, for some tools, session hooks
-or a skill, so the agent runs `bd prime` and knows the workflow. **You** run it,
-on your setup branch (`chore/beads-setup` from 1a, or the branch you created in
-1b), and review the diff before committing. Recipes write a
-managed section between `BEGIN/END BEADS` markers; your own text in
-`AGENTS.md` or `CLAUDE.md` stays yours, re-running updates the section in place,
-and `--remove` deletes only that section
-([IDE setup, v1.3.0](https://github.com/gastownhall/beads/blob/v1.3.0/docs/getting-started/ide-setup.md)).
+`bd setup <recipe>` writes instruction files, so the agent runs `bd prime` and
+knows the workflow. For some tools it also writes session hooks or a skill.
+**You** run it on your setup branch: `chore/beads-setup` from 1a, or the branch
+you created in 1b. Review the diff before committing.
+
+Recipes write a managed section between `BEGIN/END BEADS` markers
+([IDE setup, v1.3.0](https://github.com/gastownhall/beads/blob/v1.3.0/docs/getting-started/ide-setup.md)):
+
+- Your own text in `AGENTS.md` or `CLAUDE.md` stays yours.
+- Re-running updates the section in place.
+- `--remove` deletes only that section.
 
 | Harness | Install (project) | Check | Notes |
 |---|---|---|---|
@@ -142,7 +163,11 @@ than doing them. That is a good default while you learn.
 Or let the agent run it after you approve; the integration takes effect only
 after you restart the harness:
 
-> I use Codex CLI. Show me what `bd setup codex --print` would add and which files `bd setup codex` changes in this repository. After I approve, run `bd setup codex` (project scope, no `--global`), then `bd setup codex --check` and `git diff`, and remind me to restart Codex.
+> I use Codex CLI. Show me what `bd setup codex --print` would add and which files `bd setup codex` changes in this repository. Wait for my approval. Then:
+>
+> 1. Run `bd setup codex` (project scope, no `--global`).
+> 2. Run `bd setup codex --check` and `git diff`.
+> 3. Remind me to restart Codex.
 
 **OMP** has no `bd setup` recipe. Its optional Beads plugin adds actor
 attribution, serialized ledger writes and closure safeguards; it schedules
@@ -181,7 +206,7 @@ bd create "Add CSV export to the report command" -t epic -p 1 \
 
 Or ask the agent:
 
-> Plan "CSV export for the report command" as one Beads epic. Read the relevant code first. Create only the epic, with a description and testable acceptance criteria, then print its ID. Do not create children or edit code.
+> Plan "CSV export for the report command" as one Beads epic. Read the relevant code first. Create only the epic, with a description and testable acceptance criteria. Then print its ID. Do not create children or edit code.
 
 ## 4. Inspect: what is there, what is related, what is next
 
@@ -195,10 +220,10 @@ bd blocked --parent <epic-id>                   # and what blocks them
 bd dep list <epic-id> --direction up            # what points at the epic
 ```
 
-Beads in one graph layer have no dependency on each other; run them in parallel
-only when they also own separate files. "Ready" means nothing blocks it, not
-"needs coding": a finished but unreviewed bead is ready again once its worker
-releases it. Natural-language versions:
+Beads in one graph layer have no dependency on each other. Run them in parallel
+only when they also own separate files. "Ready" means that nothing blocks a bead;
+it does not mean "needs coding". A finished but unreviewed bead is ready again
+once its worker releases it. Natural-language versions:
 
 > What open tasks are in this repository?
 
@@ -223,12 +248,12 @@ bd children <epic-id>
 bd ready --parent <epic-id>                     # expect: the new child
 ```
 
-The printed ID is your `<child-id>`. `execution_agent_type` (`implementer`,
-`researcher`, `operator`) tells whoever dispatches what kind of agent to use;
-when an agent plans the work, ask it to fill this in.
+The printed ID is your `<child-id>`. `execution_agent_type` tells whoever
+dispatches what kind of agent to use: `implementer`, `researcher` or `operator`.
+When an agent plans the work, ask it to fill this in.
 
 Add a dependency only when one child needs another child's output or edits the
-same file; ordering preferences are not dependencies. If you split the work
+same file. Ordering preferences are not dependencies. If you split the work
 and such a dependency exists:
 
 ```sh
@@ -240,12 +265,19 @@ means the opposite (B depends on the new bead).
 
 Or ask the agent:
 
-> Decompose epic `<epic-id>` into child beads. Each child gets one owner, the files it touches, testable acceptance criteria and `execution_agent_type` metadata. Add `blocks` dependencies only where a child needs another's output or edits the same file; use `related` otherwise. Create them in one `bd create --graph` transaction after a `--dry-run`. Show me `bd graph <epic-id>` and `bd ready --parent <epic-id>`. Do not start work.
+> Decompose epic `<epic-id>` into child beads. Give each child:
+>
+> - one owner;
+> - the files it touches;
+> - testable acceptance criteria;
+> - `execution_agent_type` metadata.
+>
+> Add `blocks` dependencies only where a child needs another's output or edits the same file. Use `related` otherwise. Create them in one `bd create --graph` transaction after a `--dry-run`. Show me `bd graph <epic-id>` and `bd ready --parent <epic-id>`. Do not start work.
 
 ## 6. Claim, work, test, report, review
 
-A claim is atomic: a second claimant is refused. Pull and look first, so you
-claim against current ledger state, then claim before you edit or create a
+A claim is atomic: a second claimant is refused. Pull and look first, so that you
+claim against current ledger state. Then claim before you edit or create a
 branch:
 
 ```sh
@@ -255,7 +287,12 @@ bd update <child-id> --claim
 git worktree add -b csv-export ../<repo>-csv-export <base-sha>   # optional: separate checkout
 ```
 
-Now edit, run the tests the acceptance names, and commit in that worktree.
+In that worktree:
+
+1. Make your changes.
+2. Run the tests the acceptance names.
+3. Commit.
+
 Then record what you did:
 
 ```sh
@@ -269,19 +306,22 @@ it in `bd ready` instead of handing it out again.
 With several agents at once:
 
 - Each concurrent writer gets its own worktree cut from the same base commit.
-- Worktrees share the main checkout's ledger (`bd where` shows it), and its
-  embedded store takes one writer at a time: run every `bd` write, including
-  claims and `bd dolt pull`/`push`, one after another, never in parallel.
+- Worktrees share the main checkout's ledger; `bd where` shows it. Its embedded
+  store takes one writer at a time. Run every `bd` write one after another, never
+  in parallel. This includes claims and `bd dolt pull`/`push`.
 - Give every agent its own actor on every `bd` call (`--actor <name>` or
   `BEADS_ACTOR=<name>`). Claims are per actor and re-claiming your own bead
   succeeds, so two agents sharing one name can both "claim" the same bead.
 
 **When is a child done?** The worker reports; it never closes its own bead.
-The lead (you or your lead agent) has the commit reviewed against the
-acceptance, merges it into the feature branch, and then closes the child with
-that evidence. Closing releases anything that depends on it. The epic stays open
-until the whole feature is reviewed and delivered (step 8). A rejected child
-stays open.
+The lead (you or your lead agent) then:
+
+1. has the commit reviewed against the acceptance;
+2. merges it into the feature branch;
+3. closes the child with that evidence.
+
+Closing releases anything that depends on it. The epic stays open until the
+whole feature is reviewed and delivered (step 8). A rejected child stays open.
 
 ```sh
 bd close <child-id> --reason "Reviewed <commit-sha>: <test command> -> pass; merged into <feature-branch>"
@@ -300,16 +340,32 @@ bd create "CSV export drops quotes around names with commas" -t bug --parent <ep
 
 Prompts:
 
-> Work epic `<epic-id>`. Take items from `bd ready --parent <epic-id>`, skipping any with `state=reported` metadata. Before each claim, run `bd dolt pull` and `bd show ID`, then claim with `bd update ID --claim` before editing. Give each concurrent writer its own git worktree from one base commit and its own actor name; run `bd` writes one at a time. If you can run subagents, dispatch independent children in one parallel batch; otherwise do them one at a time. Each worker runs the tests its acceptance names, commits, records `state=reported`, branch, commit and result on the bead, and reports. Workers never close beads.
+> Work epic `<epic-id>`:
+>
+> 1. Take items from `bd ready --parent <epic-id>`, skipping any with `state=reported` metadata.
+> 2. Before each claim, run `bd dolt pull` and `bd show ID`.
+> 3. Claim with `bd update ID --claim` before editing.
+> 4. Give each concurrent writer its own git worktree from one base commit and its own actor name.
+> 5. Run `bd` writes one at a time.
+> 6. If you can run subagents, dispatch independent children in one parallel batch. Otherwise, do them one at a time.
+> 7. Each worker runs the tests its acceptance names. Then it commits.
+> 8. The worker records `state=reported` on the bead, with its branch, commit and test result. Then it reports.
+> 9. Workers never close beads.
 
 > Review bead `<child-id>` at commit `<commit-sha>` against its acceptance criteria. Read-only: run the named checks and report PASS or FAIL with the commands and output. For a defect, state expected versus observed behavior. Do not fix it.
 
-## 7. Checkpoint, then continue in a fresh session
+## 7. Continue in a fresh session after a checkpoint
 
-The conversation is disposable; the ledger is the handoff. Before ending a
-session, commit, write what matters onto the beads, release the claims you
-still hold on open beads (a child you are working on, the epic if you claimed
-it) and sync. Never unclaim a closed bead: `bd unclaim` reopens it.
+The conversation is disposable; the ledger is the handoff. Before you end a
+session:
+
+1. Commit your work.
+2. Write what matters onto the beads.
+3. Release the claims you still hold on open beads: a child you are working on,
+   or the epic if you claimed it.
+4. Sync.
+
+Never unclaim a closed bead: `bd unclaim` reopens it.
 
 ```sh
 bd update <epic-id> --append-notes "CSV export at <commit-sha>, tests pass. Bug <bug-id> open. Next: fix bug, then deliver."
@@ -320,16 +376,32 @@ bd dolt push
 
 Or ask the agent:
 
-> Checkpoint epic `<epic-id>`: wait until no worker is editing, make sure every change is committed, append findings, commit SHAs, check results and remaining work to the epic notes, release only the claims you hold on open beads, and run `bd dolt push`. Then tell me it is safe to end the session.
+> Checkpoint epic `<epic-id>`:
+>
+> 1. Wait until no worker is editing.
+> 2. Make sure every change is committed.
+> 3. Append these to the epic notes:
+>    - findings;
+>    - commit SHAs;
+>    - check results;
+>    - remaining work.
+> 4. Release only the claims you hold on open beads.
+> 5. Run `bd dolt push`.
+>
+> Then tell me it is safe to end the session.
 
 Start a new session with no history and give it only this:
 
 > Continue epic `<epic-id>` in this repository.
 
-Expected: the agent runs `bd prime` and `bd show`, finds the notes, the open bug,
-the recorded branch and commit, and what is ready; it reuses existing branches
-and worktrees instead of starting over. Anything only in the old transcript is
-gone, which is why anchors go on the beads.
+Expected: the agent runs `bd prime` and `bd show`. It finds:
+
+- the notes and the open bug;
+- the recorded branch and commit;
+- what is ready.
+
+It reuses existing branches and worktrees instead of starting over. Anything
+only in the old transcript is gone, which is why anchors go on the beads.
 
 ## 8. Deliver: pull request, checks, your decision, merge, then close the epic
 
@@ -407,17 +479,18 @@ dependencies, servers or persistence.
   edges in one transaction; nodes use `key`, `parent_key`/`parent_id` and
   `acceptance_criteria`, edges live in a top-level `edges` array. Check the
   dry-run counts before the real run.
-- **Formulas, molecules, gates.** A formula is a reusable workflow template; `bd mol pour`
-  turns it into a molecule of real beads, and a human gate (`bd gate resolve <gate-id>`)
-  blocks a step until a person decides. `bd mol wisp` creates ephemeral molecules:
+- **Formulas, molecules, gates.** A formula is a reusable workflow template.
+  `bd mol pour` turns it into a molecule of real beads. A human gate blocks a
+  step until a person resolves it with `bd gate resolve <gate-id>`.
+  `bd mol wisp` creates ephemeral molecules:
   never the only copy of a decision. See the
   [v1.3.0 docs](https://github.com/gastownhall/beads/tree/v1.3.0/docs).
 - **Mardi Gras.** A terminal board over `bd`:
   [quietpublish/mardi-gras](https://github.com/quietpublish/mardi-gras/tree/v0.33.0);
   run `mg -no-animations`.
-- **SpecKit.** `.beads/formulas/` here carries the SpecKit plugin's Beads
-  formulas as examples of spec-driven workflows; real SpecKit work uses its own
-  approval-aware starter.
+- **SpecKit.** [Spec Kit](https://github.com/github/spec-kit) is a toolkit for
+  spec-driven development. A Beads formula can model its phases as molecule
+  steps, with human gates for approvals.
 - **Shared Dolt server.** Not needed for one repository. Read the
   [Dolt architecture notes](https://github.com/gastownhall/beads/blob/v1.3.0/docs/architecture/dolt.md)
   before considering it.
@@ -434,9 +507,3 @@ python3 -m unittest discover -s tests
 python3 checks/acceptance.py baseline
 python3 -m logdemo dump fixtures/demo.jsonl
 ```
-
-This clone is configured for the talk's own ledger. Use it to read code, not to
-practise Beads: do not run `bd init`, `bd bootstrap` or `bd dolt push` in it.
-Its [`AGENTS.md`](AGENTS.md) is a stage-specific contract (seeded milestones,
-fixed actors, demo metadata); borrow ideas from it, but don't transplant it into
-your project unchanged.
