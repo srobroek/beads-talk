@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 
+from logdemo.filtering import filter_service
 from logdemo.io import InputError, read_events
 from logdemo.summary import summarize
 
@@ -15,6 +16,7 @@ def main(argv: list[str] | None = None) -> int:
     dump.add_argument("file")
     summary = commands.add_parser("summary", help="count events per severity level")
     summary.add_argument("file")
+    summary.add_argument("--service", metavar="NAME", help="summarize only events from this service")
     args = parser.parse_args(argv)
 
     try:
@@ -24,6 +26,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.command == "summary":
+        if args.service is not None:
+            events = filter_service(events, args.service)
         print(json.dumps(summarize(events), indent=2))
     else:
         print(json.dumps(events, indent=2))

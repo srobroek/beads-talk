@@ -21,3 +21,5 @@ jobs:
         run: python checks/acceptance.py baseline
       - name: Summary acceptance
         run: python checks/acceptance.py summary
+      - name: Filtered acceptance
+        run: python checks/acceptance.py filtered
