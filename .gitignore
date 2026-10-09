@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.beads/embeddolt/
+.beads/embeddeddolt/
+.beads/dolt/
+.beads/issues.jsonl
+.coverage
+.runtime/
