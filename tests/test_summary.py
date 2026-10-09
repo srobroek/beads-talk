@@ -23,6 +23,10 @@ class SummarizeTest(unittest.TestCase):
     def test_empty_input_counts_zero(self):
         self.assertEqual(summarize([]), {"INFO": 0, "WARN": 0, "ERROR": 0})
 
+    def test_counts_by_level_not_message_text(self):
+        result = summarize([event("INFO", "ERROR in upstream"), event("ERROR", "info only")])
+        self.assertEqual(result, {"INFO": 1, "WARN": 0, "ERROR": 1})
+
 
 if __name__ == "__main__":
     unittest.main()
