@@ -8,7 +8,7 @@ Beads epic and let one or more coding agents work it. Then you end the chat and
 continue in a fresh session from the ledger. The stage app is separate; see
 [Try the stage app](#try-the-stage-app-optional).
 
-## What Beads does, and what it does not
+## What Beads does
 
 - `bd` stores a graph of work in your repository:
   - epics and their children;
